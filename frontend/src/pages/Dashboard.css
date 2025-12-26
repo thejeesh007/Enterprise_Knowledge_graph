@@ -1,0 +1,35 @@
+.dashboard {
+  padding: 40px;
+  text-align: center;
+}
+
+.subtitle {
+  margin-top: 10px;
+  font-size: 18px;
+  color: #555;
+}
+
+.dashboard-cards {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin-top: 50px;
+}
+
+.card {
+  width: 320px;
+  padding: 25px;
+  border-radius: 12px;
+  background: #f8f9fa;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+}
+
+.card h2 {
+  margin-bottom: 15px;
+}
