@@ -11,9 +11,14 @@ function StudentDetails() {
   const [recommendedProjects, setRecommendedProjects] = useState([]);
   const [skillGap, setSkillGap]=useState([]);
   const [recommendedMentors, setRecommendedMentors] = useState([]);
+  const [readiness, setReadiness] = useState(null);
 
   useEffect(() => {
     // Get all students and find one (simple & safe)
+    api.get(`/analysis/student/${id}/readiness`)
+  .then(res => setReadiness(res.data))
+  .catch(() => setReadiness(null));
+
     api.get(`/analysis/student/${id}/skill-gap`)
   .then(res => setSkillGap(res.data))
   .catch(() => setSkillGap([]));
@@ -108,6 +113,40 @@ function StudentDetails() {
         {student.program} • {student.dept} • Year {student.year}
       </div>
     </div>
+    {readiness && (
+  <div style={{ marginTop: "25px" }}>
+    <h2>🚀 Career Readiness</h2>
+
+    <div
+      style={{
+        width: "100%",
+        height: "16px",
+        background: "#eee",
+        borderRadius: "10px",
+        overflow: "hidden",
+        marginTop: "8px"
+      }}
+    >
+      <div
+        style={{
+          width: `${readiness.readiness}%`,
+          height: "100%",
+          background:
+            readiness.readiness > 70
+              ? "#4caf50"
+              : readiness.readiness > 40
+              ? "#ff9800"
+              : "#f44336"
+        }}
+      />
+    </div>
+
+    <p style={{ marginTop: "6px", fontSize: "14px" }}>
+      {readiness.readiness}% ready • {readiness.ownedCount} /{" "}
+      {readiness.totalRequired} skills acquired
+    </p>
+  </div>
+)}
 
     <div
       style={{
