@@ -389,7 +389,7 @@ app.get("/recommendations/student/:id/mentors", async (req, res) => {
   }
 });
 
-// ---------- Skill Gap Analysis ----------
+// ---------- Career-based Skill Gap ----------
 app.get("/analysis/student/:id/skill-gap", async (req, res) => {
   const session = driver.session();
   const id = parseInt(req.params.id);
@@ -397,18 +397,52 @@ app.get("/analysis/student/:id/skill-gap", async (req, res) => {
   try {
     const result = await session.run(
       `
-      MATCH (s:Student {id:$id})-[:INTERESTED_IN]->(ra:ResearchArea)
-      MATCH (p:Project)-[:USES]->(sk:Skill)
-      WHERE p.domain CONTAINS ra.name OR ra.name CONTAINS p.domain
-      AND NOT (s)-[:HAS_SKILL]->(sk)
-      RETURN DISTINCT sk.name AS missingSkill
+      MATCH (s:Student {id:$id})-[:ASPIRES_TO]->(r:CareerRole)
+      MATCH (r)-[:REQUIRES_SKILL]->(sk:Skill)
+      WHERE NOT (s)-[:HAS_SKILL]->(sk)
+      RETURN sk.name AS missingSkill
       `,
       { id }
     );
 
-    res.json(
-      result.records.map(r => r.get("missingSkill"))
+    res.json(result.records.map(r => r.get("missingSkill")));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get("/analysis/student/:id/readiness", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})-[:ASPIRES_TO]->(r:CareerRole)
+      MATCH (r)-[:REQUIRES_SKILL]->(sk:Skill)
+      WITH collect(DISTINCT sk) AS requiredSkills
+
+      OPTIONAL MATCH (s)-[:HAS_SKILL]->(owned:Skill)
+      WHERE owned IN requiredSkills
+      WITH requiredSkills, count(DISTINCT owned) AS ownedCount
+
+      RETURN
+        size(requiredSkills) AS totalRequired,
+        ownedCount,
+        round((ownedCount * 100.0) / size(requiredSkills)) AS readiness
+      `,
+      { id }
     );
+
+    const row = result.records[0];
+
+    res.json({
+      totalRequired: toNumber(row.get("totalRequired")),
+      ownedCount: toNumber(row.get("ownedCount")),
+      readiness: toNumber(row.get("readiness"))
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
