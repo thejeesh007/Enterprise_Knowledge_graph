@@ -14,6 +14,9 @@ function StudentDetails() {
 
   useEffect(() => {
     // Get all students and find one (simple & safe)
+    api
+  .get(`/recommendations/student/${id}/projects`)
+  .then(res => setRecommendedProjects(res.data));
     api.get("/students").then(res => {
       const found = res.data.find(s => s.id === Number(id));
       setStudent(found);
@@ -35,9 +38,7 @@ function StudentDetails() {
       .then(res => setSkills(res.data))
       .catch(() => setSkills([]));
   }, [id]);
-    api
-  .get(`/recommendations/student/${id}/projects`)
-  .then(res => setRecommendedProjects(res.data));
+    
 
   if (!student) return <div style={{ padding: "40px" }}>Loading...</div>;
 
