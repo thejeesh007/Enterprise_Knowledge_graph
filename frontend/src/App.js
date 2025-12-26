@@ -7,6 +7,7 @@ import Students from "./pages/Students";
 import StudentDetails from "./pages/StudentDetails";
 import Faculty from "./pages/Faculty";
 import FacultyDetails from "./pages/FacultyDetails";
+import GraphView from "./pages/GraphView";
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Route path="/students/:id" element={<StudentDetails />} />
         <Route path="/faculty" element={<Faculty />} />
         <Route path="/faculty/:id" element={<FacultyDetails />} />
+        <Route path="/graph/student/:id" element={<GraphView />} />
       </Routes>
     </Router>
   );

@@ -450,6 +450,101 @@ app.get("/analysis/student/:id/readiness", async (req, res) => {
   }
 });
 
+app.get("/analysis/student/:id/research-compatibility", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})-[:INTERESTED_IN]->(ra:ResearchArea)
+      MATCH (f:Faculty)-[:RESEARCHES_IN]->(ra)
+      OPTIONAL MATCH (f)-[:PUBLISHED]->(p:Publication)
+
+      WITH
+        f,
+        collect(DISTINCT ra.name) AS matchedResearch,
+        count(DISTINCT p) AS pubCount
+
+      WITH
+        f,
+        matchedResearch,
+        pubCount,
+        size(matchedResearch) AS researchMatchCount
+
+      RETURN
+        f.name AS faculty,
+        f.designation AS designation,
+        f.department AS department,
+        matchedResearch,
+        round((researchMatchCount * 20) + (pubCount * 10)) AS compatibility
+      ORDER BY compatibility DESC
+      `,
+      { id }
+    );
+
+    res.json(
+      result.records.map(r => ({
+        faculty: r.get("faculty"),
+        designation: r.get("designation"),
+        department: r.get("department"),
+        matchedResearch: r.get("matchedResearch"),
+        compatibility: toNumber(r.get("compatibility"))
+      }))
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get("/graph/student/:id", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})
+      OPTIONAL MATCH (s)-[r1]->(n1)
+      OPTIONAL MATCH (n2)-[r2]->(s)
+      WITH collect(DISTINCT s) + collect(DISTINCT n1) + collect(DISTINCT n2) AS nodes,
+           collect(DISTINCT r1) + collect(DISTINCT r2) AS rels
+
+      UNWIND nodes AS n
+      WITH collect(DISTINCT {
+        id: id(n),
+        label: head(labels(n)),
+        name: coalesce(n.name, n.title, n.code)
+      }) AS nodes,
+      rels
+
+      UNWIND rels AS r
+      WITH nodes,
+      collect(DISTINCT {
+        source: id(startNode(r)),
+        target: id(endNode(r)),
+        type: type(r)
+      }) AS links
+
+      RETURN nodes, links
+      `,
+      { id }
+    );
+
+    const record = result.records[0];
+    res.json({
+      nodes: record.get("nodes"),
+      links: record.get("links")
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
 // ---------- Server ----------
 app.listen(5000, () => {
   console.log("Backend running on http://localhost:5000");

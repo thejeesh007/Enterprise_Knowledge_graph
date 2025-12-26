@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../services/api";
+import { useNavigate } from "react-router-dom";
 
 function StudentDetails() {
   const { id } = useParams();
@@ -12,9 +13,16 @@ function StudentDetails() {
   const [skillGap, setSkillGap]=useState([]);
   const [recommendedMentors, setRecommendedMentors] = useState([]);
   const [readiness, setReadiness] = useState(null);
+  const [researchMentors, setResearchMentors] = useState([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Get all students and find one (simple & safe)
+    api
+  .get(`/analysis/student/${id}/research-compatibility`)
+  .then(res => setResearchMentors(res.data))
+  .catch(() => setResearchMentors([]));
+
     api.get(`/analysis/student/${id}/readiness`)
   .then(res => setReadiness(res.data))
   .catch(() => setReadiness(null));
@@ -147,6 +155,21 @@ function StudentDetails() {
     </p>
   </div>
 )}
+<button
+  onClick={() => navigate(`/graph/student/${student.id}`)}
+  style={{
+    marginTop: "30px",
+    padding: "12px 20px",
+    borderRadius: "10px",
+    border: "none",
+    background: "#2f5fff",
+    color: "white",
+    fontSize: "16px",
+    cursor: "pointer"
+  }}
+>
+  🕸️ View Knowledge Graph
+</button>
 
     <div
       style={{
@@ -217,6 +240,80 @@ function StudentDetails() {
     <div style={text}>No projects linked</div>
   )}
 </div>
+<h2 style={{ marginTop: "50px" }}>🎓 Recommended Research Mentors</h2>
+
+{researchMentors.length === 0 ? (
+  <p style={{ color: "#666" }}>
+    No research mentor recommendations available yet.
+  </p>
+) : (
+  <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+    {researchMentors.map((m, i) => (
+      <div
+        key={i}
+        style={{
+          width: "300px",
+          padding: "20px",
+          borderRadius: "14px",
+          background: "#ffffff",
+          border: "1px solid #e0e0e0",
+          boxShadow: "0 8px 20px rgba(0,0,0,0.08)"
+        }}
+      >
+        <h3 style={{ marginBottom: "6px" }}>{m.faculty}</h3>
+
+        <div style={{ fontSize: "14px", color: "#555" }}>
+          {m.designation} • {m.department}
+        </div>
+
+        {/* Compatibility bar */}
+        <div
+          style={{
+            marginTop: "12px",
+            height: "10px",
+            background: "#eee",
+            borderRadius: "6px",
+            overflow: "hidden"
+          }}
+        >
+          <div
+            style={{
+              width: `${m.compatibility}%`,
+              height: "100%",
+              background:
+                m.compatibility > 70
+                  ? "#4caf50"
+                  : m.compatibility > 40
+                  ? "#ff9800"
+                  : "#f44336"
+            }}
+          />
+        </div>
+
+        <div
+          style={{
+            marginTop: "6px",
+            fontSize: "13px",
+            fontWeight: "bold"
+          }}
+        >
+          Compatibility: {m.compatibility}%
+        </div>
+
+        {/* Explanation */}
+        <div style={{ marginTop: "12px", fontSize: "13px", color: "#444" }}>
+          <strong>Why this mentor?</strong>
+          <ul style={{ paddingLeft: "18px", marginTop: "6px" }}>
+            {m.matchedResearch.map((r, idx) => (
+              <li key={idx}>Shared interest in {r}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    ))}
+  </div>
+)}
+
 <h2 style={{ marginTop: "40px" }}>🔥 Recommended Projects</h2>
 
 {recommendedProjects.length === 0 && (
