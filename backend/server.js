@@ -320,12 +320,20 @@ app.get("/recommendations/student/:id/projects", async (req, res) => {
       { id: studentId }
     );
 
-    const recommendations = result.records.map(r => ({
-      title: r.get("title"),
-      domain: r.get("domain"),
-      matchedSkills: r.get("matchedSkills"),
-      relevance: r.get("relevance").toNumber()
-    }));
+    const recommendations = result.records.map(r => {
+  const skills = r.get("matchedSkills");
+
+  return {
+    title: r.get("title"),
+    domain: r.get("domain"),
+    matchedSkills: skills,
+    relevance: toNumber(r.get("relevance")),
+    explanation: `Recommended because this project uses ${skills.join(
+      ", "
+    )}, which you already know.`
+  };
+});
+
 
     res.json(recommendations);
   } catch (err) {
@@ -373,6 +381,33 @@ app.get("/recommendations/student/:id/mentors", async (req, res) => {
         matchedResearch: r.get("matchedResearch"),
          relevance: toNumber(r.get("relevance"))
       }))
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ---------- Skill Gap Analysis ----------
+app.get("/analysis/student/:id/skill-gap", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})-[:INTERESTED_IN]->(ra:ResearchArea)
+      MATCH (p:Project)-[:USES]->(sk:Skill)
+      WHERE p.domain CONTAINS ra.name OR ra.name CONTAINS p.domain
+      AND NOT (s)-[:HAS_SKILL]->(sk)
+      RETURN DISTINCT sk.name AS missingSkill
+      `,
+      { id }
+    );
+
+    res.json(
+      result.records.map(r => r.get("missingSkill"))
     );
   } catch (err) {
     res.status(500).json({ error: err.message });

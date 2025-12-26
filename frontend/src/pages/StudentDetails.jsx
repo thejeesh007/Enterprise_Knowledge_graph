@@ -9,11 +9,15 @@ function StudentDetails() {
   const [projects, setProjects] = useState([]);
   const [mentor, setMentor] = useState(null);
   const [recommendedProjects, setRecommendedProjects] = useState([]);
-  
+  const [skillGap, setSkillGap]=useState([]);
   const [recommendedMentors, setRecommendedMentors] = useState([]);
 
   useEffect(() => {
     // Get all students and find one (simple & safe)
+    api.get(`/analysis/student/${id}/skill-gap`)
+  .then(res => setSkillGap(res.data))
+  .catch(() => setSkillGap([]));
+
     api
   .get(`/recommendations/student/${id}/projects`)
   .then(res => setRecommendedProjects(res.data));
@@ -207,6 +211,10 @@ function StudentDetails() {
       <strong>Relevance:</strong>{" "}
       {"⭐".repeat(p.relevance)}
     </p>
+    <p style={{ fontSize: "13px", color: "#555", marginTop: "6px" }}>
+  💡 {p.explanation}
+</p>
+
   </div>
 ))}
         <h2 style={{ marginTop: "40px" }}>🎓 Recommended Mentors</h2>
@@ -315,7 +323,33 @@ function StudentDetails() {
           : <div style={text}>No skills linked</div>
         }
       </div>
+      <h2 style={{ marginTop: "40px" }}>📈 Skill Gap Analysis</h2>
+
+{skillGap.length > 0 ? (
+  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+    {skillGap.map((s, i) => (
+      <span
+        key={i}
+        style={{
+          padding: "10px 14px",
+          borderRadius: "20px",
+          background: "#ffecec",
+          color: "#b00020",
+          fontWeight: "500"
+        }}
+      >
+        {s}
+      </span>
+    ))}
+  </div>
+) : (
+  <p style={{ color: "#555" }}>
+    No immediate skill gaps detected 🎉
+  </p>
+)}
+
     </div>
+    
   );
 }
 
