@@ -13,6 +13,9 @@ function StudentDetails() {
   const [recommendedMentors, setRecommendedMentors] = useState([]);
   const [readiness, setReadiness] = useState(null);
   const [researchMentors, setResearchMentors] = useState([]);
+  const [resumeText, setResumeText] = useState("");
+const [resumeResult, setResumeResult] = useState(null);
+const [analyzingResume, setAnalyzingResume] = useState(false);
 
   useEffect(() => {
     // Get all students and find one (simple & safe)
@@ -89,6 +92,28 @@ function StudentDetails() {
   marginBottom: "10px",
   fontSize: "14px",
   fontWeight: "500"
+};
+const analyzeResume = async () => {
+  if (!resumeText.trim()) {
+    alert("Please paste resume content first");
+    return;
+  }
+
+  try {
+    setAnalyzingResume(true);
+
+    const res = await api.post(
+      `/resume/analyze/${id}`,
+      { resumeText }
+    );
+
+    setResumeResult(res.data);
+  } catch (err) {
+    console.error(err);
+    alert("Resume analysis failed");
+  } finally {
+    setAnalyzingResume(false);
+  }
 };
 
 
@@ -423,6 +448,72 @@ function StudentDetails() {
         <div style={sectionTitle}>Career Goal</div>
         <div style={text}>{student.career_goal}</div>
       </div>
+    {/* ================= Resume Analyzer ================= */}
+<div style={{ marginTop: "60px" }}>
+  <h2>📄 Resume Analyzer</h2>
+
+  <textarea
+    rows="6"
+    placeholder="Paste resume content here..."
+    value={resumeText}
+    onChange={e => setResumeText(e.target.value)}
+    style={{
+      width: "100%",
+      padding: "14px",
+      borderRadius: "10px",
+      border: "1px solid #ccc",
+      marginTop: "12px",
+      fontSize: "14px"
+    }}
+  />
+
+  <button
+    onClick={analyzeResume}
+    disabled={analyzingResume}
+    style={{
+      marginTop: "15px",
+      padding: "12px 22px",
+      borderRadius: "10px",
+      background: "#2f5fff",
+      color: "white",
+      border: "none",
+      fontSize: "14px",
+      cursor: "pointer"
+    }}
+  >
+    {analyzingResume ? "Analyzing..." : "Analyze Resume"}
+  </button>
+
+  {resumeResult && (
+    <div
+      style={{
+        marginTop: "30px",
+        padding: "22px",
+        borderRadius: "14px",
+        background: "#f9fbff",
+        border: "1px solid #dce3ff"
+      }}
+    >
+      <h3>🎯 Target Role: {resumeResult.role}</h3>
+      <h3>📊 Resume Score: {resumeResult.score}%</h3>
+
+      <h4 style={{ marginTop: "15px" }}>✅ Matched Skills</h4>
+      <ul>
+        {resumeResult.matchedSkills.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ul>
+
+      <h4 style={{ marginTop: "15px" }}>❌ Missing Skills</h4>
+      <ul>
+        {resumeResult.missingSkills.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ul>
+    </div>
+  )}
+</div>
+{/* ================= END Resume Analyzer ================= */}
 
       {/* Interests */}
       <div style={section}>
