@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../services/api";
-import { useNavigate } from "react-router-dom";
 
 function StudentDetails() {
   const { id } = useParams();
@@ -14,7 +13,6 @@ function StudentDetails() {
   const [recommendedMentors, setRecommendedMentors] = useState([]);
   const [readiness, setReadiness] = useState(null);
   const [researchMentors, setResearchMentors] = useState([]);
-  const navigate = useNavigate();
 
   useEffect(() => {
     // Get all students and find one (simple & safe)
@@ -155,21 +153,6 @@ function StudentDetails() {
     </p>
   </div>
 )}
-<button
-  onClick={() => navigate(`/graph/student/${student.id}`)}
-  style={{
-    marginTop: "30px",
-    padding: "12px 20px",
-    borderRadius: "10px",
-    border: "none",
-    background: "#2f5fff",
-    color: "white",
-    fontSize: "16px",
-    cursor: "pointer"
-  }}
->
-  🕸️ View Knowledge Graph
-</button>
 
     <div
       style={{
