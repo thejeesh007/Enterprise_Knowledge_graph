@@ -6,6 +6,34 @@ const driver = require("./db");
 const app = express();
 app.use(cors());
 app.use(express.json());
+function extractSkillsFromResume(resumeText) {
+  const knownSkills = [
+    "Python",
+    "Java",
+    "C++",
+    "DSA",
+    "React",
+    "Node.js",
+    "SQL",
+    "MongoDB",
+    "Neo4j",
+    "AWS",
+    "Docker",
+    "Kubernetes",
+    "System Design",
+    "Machine Learning",
+    "AI",
+    "Cloud",
+    "DevOps"
+  ];
+
+  const text = resumeText.toLowerCase();
+
+  return knownSkills.filter(skill =>
+    text.includes(skill.toLowerCase())
+  );
+}
+
 
 // ---------- Helper ----------
 function toNumber(value) {
@@ -539,6 +567,72 @@ app.get("/graph/student/:id", async (req, res) => {
       links: record.get("links")
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.post("/resume/analyze", async (req, res) => {
+  const { studentId, resumeText } = req.body;
+
+  if (!studentId || !resumeText) {
+    return res.status(400).json({ error: "studentId and resumeText required" });
+  }
+
+  const session = driver.session();
+
+  try {
+    // 1️⃣ Get student career goal
+    const studentResult = await session.run(
+      `MATCH (s:Student {id:$id}) RETURN s.career_goal AS role`,
+      { id: Number(studentId) }
+    );
+
+    if (studentResult.records.length === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    const targetRole = studentResult.records[0].get("role");
+
+    // 2️⃣ Get required skills for that role
+    const requiredResult = await session.run(
+      `
+      MATCH (r:CareerRole {name:$role})-[:REQUIRES_SKILL]->(sk:Skill)
+      RETURN collect(sk.name) AS requiredSkills
+      `,
+      { role: targetRole }
+    );
+
+    const requiredSkills =
+      requiredResult.records[0]?.get("requiredSkills") || [];
+
+    // 3️⃣ Extract skills from resume text
+    const resumeSkills = extractSkillsFromResume(resumeText);
+
+    // 4️⃣ Compare
+    const matchedSkills = resumeSkills.filter(s =>
+      requiredSkills.includes(s)
+    );
+
+    const missingSkills = requiredSkills.filter(s =>
+      !resumeSkills.includes(s)
+    );
+
+    const score =
+      requiredSkills.length === 0
+        ? 0
+        : Math.round((matchedSkills.length / requiredSkills.length) * 100);
+
+    res.json({
+      studentId,
+      targetRole,
+      resumeScore: score,
+      matchedSkills,
+      missingSkills
+    });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   } finally {
     await session.close();

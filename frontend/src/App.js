@@ -8,12 +8,15 @@ import StudentDetails from "./pages/StudentDetails";
 import Faculty from "./pages/Faculty";
 import FacultyDetails from "./pages/FacultyDetails";
 import GraphView from "./pages/GraphView";
+import ResumeTest from "./pages/ResumeTest";
 
 function App() {
   return (
     <Router>
       <Navbar />
       <Routes>
+        <Route path="/resume-test" element={<ResumeTest />} />
+
         <Route path="/" element={<Dashboard />} />
         <Route path="/students" element={<Students />} />
         <Route path="/students/:id" element={<StudentDetails />} />
