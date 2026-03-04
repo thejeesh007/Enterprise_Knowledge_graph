@@ -326,8 +326,6 @@ app.get("/faculty/:id/publications", async (req, res) => {
     await session.close();
   }
 });
-
-// ---------- Recommended Projects for Student ----------
 app.get("/recommendations/student/:id/projects", async (req, res) => {
   const studentId = parseInt(req.params.id);
   const session = driver.session();
@@ -335,36 +333,39 @@ app.get("/recommendations/student/:id/projects", async (req, res) => {
   try {
     const result = await session.run(
       `
-      MATCH (s:Student {id:$id})-[:HAS_SKILL]->(sk:Skill)<-[:USES]-(p:Project)
+      MATCH (s:Student {id:$id})
+      MATCH (p:Project)
       WHERE NOT (s)-[:WORKED_ON]->(p)
-      WITH p, collect(DISTINCT sk.name) AS matchedSkills
+
+      OPTIONAL MATCH (s)-[:HAS_SKILL]->(sk:Skill)<-[:USES|:BUILDS_SKILL]-(p)
+      WITH s, p, collect(DISTINCT sk.name) AS matchedSkills
+
+      WITH p, matchedSkills, size(matchedSkills) AS skillScore
+      WHERE skillScore > 0
+
       RETURN 
         p.title AS title,
         p.domain AS domain,
         matchedSkills,
-        size(matchedSkills) AS relevance
+        skillScore * 20 AS relevance
       ORDER BY relevance DESC
+      LIMIT 5
       `,
       { id: studentId }
     );
 
-    const recommendations = result.records.map(r => {
-  const skills = r.get("matchedSkills");
-
-  return {
-    title: r.get("title"),
-    domain: r.get("domain"),
-    matchedSkills: skills,
-    relevance: toNumber(r.get("relevance")),
-    explanation: `Recommended because this project uses ${skills.join(
-      ", "
-    )}, which you already know.`
-  };
-});
-
+    const recommendations = result.records.map(r => ({
+      title: r.get("title"),
+      domain: r.get("domain"),
+      matchedSkills: r.get("matchedSkills"),
+      relevance: toNumber(r.get("relevance")),
+      explanation: `Matches ${r.get("matchedSkills").length} of your skills`
+    }));
 
     res.json(recommendations);
+
   } catch (err) {
+    console.error("PROJECT RECOMMEND ERROR:", err);
     res.status(500).json({ error: err.message });
   } finally {
     await session.close();
@@ -380,22 +381,72 @@ app.get("/recommendations/student/:id/mentors", async (req, res) => {
       `
       MATCH (s:Student {id:$id})
       MATCH (f:Faculty)
-      OPTIONAL MATCH (s)-[:HAS_SKILL]->(sk:Skill)<-[:USES|:RESEARCHES_IN]-(f)
+
+      // -------- Skill Matches --------
+      OPTIONAL MATCH (s)-[:HAS_SKILL]->(sk:Skill)<-[:SPECIALIZED_IN]-(f)
+      WITH s, f, collect(DISTINCT sk) AS skillNodes
+
+      WITH s, f, skillNodes, size(skillNodes) AS skillMatches
+
+      // -------- Research Matches --------
       OPTIONAL MATCH (s)-[:INTERESTED_IN]->(ra:ResearchArea)<-[:RESEARCHES_IN]-(f)
-      WITH f,
-           collect(DISTINCT sk.name) AS matchedSkills,
-           collect(DISTINCT ra.name) AS matchedResearch,
-           size(collect(DISTINCT sk)) * 2 +
-           size(collect(DISTINCT ra)) * 3 AS relevance
-      WHERE relevance > 0
+      WITH s, f, skillNodes, skillMatches,
+           collect(DISTINCT ra) AS researchNodes
+
+      WITH 
+        s,
+        f,
+        skillNodes,
+        researchNodes,
+        skillMatches,
+        size(researchNodes) AS researchMatches
+
+      // -------- Publication Count --------
+      OPTIONAL MATCH (f)-[:PUBLISHED]->(p)
+      WITH 
+        s,
+        f,
+        skillNodes,
+        researchNodes,
+        skillMatches,
+        researchMatches,
+        count(DISTINCT p) AS pubCount
+
+      WITH 
+        f,
+        skillNodes,
+        researchNodes,
+        skillMatches,
+        researchMatches,
+        pubCount,
+        CASE WHEN s.dept = f.department THEN 1 ELSE 0 END AS deptMatch
+
+      WITH 
+        f,
+        skillNodes,
+        researchNodes,
+        skillMatches,
+        researchMatches,
+        pubCount,
+        deptMatch,
+        (
+          (skillMatches * 30) +
+          (researchMatches * 30) +
+          (deptMatch * 20) +
+          (pubCount * 5)
+        ) AS rawScore
+
+      WHERE rawScore > 0
+
       RETURN
         f.name AS mentor,
         f.designation AS designation,
         f.department AS department,
-        matchedSkills,
-        matchedResearch,
-        relevance
-      ORDER BY relevance DESC, f.h_index DESC
+        [sk IN skillNodes | sk.name] AS matchedSkills,
+        [ra IN researchNodes | ra.name] AS matchedResearch,
+        rawScore AS relevance
+      ORDER BY rawScore DESC, f.h_index DESC
+      LIMIT 5
       `,
       { id }
     );
@@ -407,9 +458,10 @@ app.get("/recommendations/student/:id/mentors", async (req, res) => {
         department: r.get("department"),
         matchedSkills: r.get("matchedSkills"),
         matchedResearch: r.get("matchedResearch"),
-         relevance: toNumber(r.get("relevance"))
+        relevance: toNumber(r.get("relevance"))
       }))
     );
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
@@ -478,6 +530,82 @@ app.get("/analysis/student/:id/readiness", async (req, res) => {
   }
 });
 
+// ---------- Career Simulation ----------
+app.get("/simulation/student/:id/role/:role", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+  const roleName = req.params.role;
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})
+      MATCH (r:CareerRole {name:$roleName})-[:REQUIRES_SKILL]->(req:Skill)
+      OPTIONAL MATCH (s)-[:HAS_SKILL]->(owned:Skill)
+      WITH s, r,
+           collect(DISTINCT req.name) AS requiredSkills,
+           collect(DISTINCT owned.name) AS ownedSkills
+
+      WITH requiredSkills,
+           ownedSkills,
+           [skill IN requiredSkills WHERE skill IN ownedSkills] AS matched,
+           [skill IN requiredSkills WHERE NOT skill IN ownedSkills] AS missing
+
+      RETURN 
+        requiredSkills,
+        matched AS owned,
+        missing,
+        size(requiredSkills) AS totalRequired,
+        size(matched) AS ownedCount
+      `,
+      { id, roleName }
+    );
+
+    if (result.records.length === 0) {
+      return res.json({ error: "Invalid student or role" });
+    }
+
+    const row = result.records[0];
+
+    // ✅ Convert Neo4j Integers properly
+    const total = row.get("totalRequired").toNumber();
+    const ownedCount = row.get("ownedCount").toNumber();
+
+    const currentReadiness =
+      total === 0 ? 0 : Math.round((ownedCount * 100) / total);
+
+    res.json({
+      requiredSkills: row.get("requiredSkills"),
+      ownedSkills: row.get("owned"),
+      missingSkills: row.get("missing"),
+      currentReadiness,
+      projectedReadiness: 100,
+      improvement: 100 - currentReadiness
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ---------- Get All Career Roles ----------
+app.get("/career-roles", async (req, res) => {
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      "MATCH (r:CareerRole) RETURN r.name AS name ORDER BY name"
+    );
+
+    res.json(result.records.map(r => r.get("name")));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
 app.get("/analysis/student/:id/research-compatibility", async (req, res) => {
   const session = driver.session();
   const id = parseInt(req.params.id);
@@ -485,28 +613,62 @@ app.get("/analysis/student/:id/research-compatibility", async (req, res) => {
   try {
     const result = await session.run(
       `
-      MATCH (s:Student {id:$id})-[:INTERESTED_IN]->(ra:ResearchArea)
-      MATCH (f:Faculty)-[:RESEARCHES_IN]->(ra)
-      OPTIONAL MATCH (f)-[:PUBLISHED]->(p:Publication)
+      MATCH (s:Student {id:$id})
+      MATCH (f:Faculty)
 
-      WITH
-        f,
-        collect(DISTINCT ra.name) AS matchedResearch,
-        count(DISTINCT p) AS pubCount
+      // ----- Shared Research Areas -----
+      OPTIONAL MATCH (s)-[:INTERESTED_IN]->(ra:ResearchArea)<-[:RESEARCHES_IN]-(f)
+      WITH s, f, collect(DISTINCT ra) AS researchNodes
 
-      WITH
+      WITH s, f, researchNodes, size(researchNodes) AS researchOverlap
+
+      // ----- Publications -----
+      OPTIONAL MATCH (f)-[:PUBLISHED]->(p)
+      WITH s, f, researchNodes, researchOverlap, count(DISTINCT p) AS pubCount
+
+      WITH 
         f,
-        matchedResearch,
+        researchNodes,
+        researchOverlap,
         pubCount,
-        size(matchedResearch) AS researchMatchCount
+        coalesce(f.h_index, 0) AS hIndex,
+        CASE WHEN s.dept = f.department THEN 1 ELSE 0 END AS deptMatch
+
+      // ----- Raw Score Calculation -----
+      WITH 
+        f,
+        researchNodes,
+        researchOverlap,
+        pubCount,
+        hIndex,
+        deptMatch,
+        (
+          (researchOverlap * 40) +
+          (pubCount * 5) +
+          (hIndex * 1) +
+          (deptMatch * 10)
+        ) AS rawScore
+
+      WHERE rawScore > 0
+
+      // ----- Normalize to 100 -----
+      WITH f, researchNodes, researchOverlap, pubCount, hIndex,
+           CASE 
+             WHEN rawScore > 100 THEN 100
+             ELSE rawScore
+           END AS compatibility
 
       RETURN
         f.name AS faculty,
         f.designation AS designation,
         f.department AS department,
-        matchedResearch,
-        round((researchMatchCount * 20) + (pubCount * 10)) AS compatibility
+        [ra IN researchNodes | ra.name] AS matchedResearch,
+        researchOverlap,
+        pubCount,
+        hIndex,
+        compatibility
       ORDER BY compatibility DESC
+      LIMIT 5
       `,
       { id }
     );
@@ -517,16 +679,19 @@ app.get("/analysis/student/:id/research-compatibility", async (req, res) => {
         designation: r.get("designation"),
         department: r.get("department"),
         matchedResearch: r.get("matchedResearch"),
+        researchOverlap: r.get("researchOverlap"),
+        publicationCount: r.get("pubCount"),
+        hIndex: r.get("hIndex"),
         compatibility: toNumber(r.get("compatibility"))
       }))
     );
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
     await session.close();
   }
 });
-
 app.get("/graph/student/:id", async (req, res) => {
   const session = driver.session();
   const id = parseInt(req.params.id);

@@ -9,557 +9,563 @@ function StudentDetails() {
   const [projects, setProjects] = useState([]);
   const [mentor, setMentor] = useState(null);
   const [recommendedProjects, setRecommendedProjects] = useState([]);
-  const [skillGap, setSkillGap]=useState([]);
+  const [skillGap, setSkillGap] = useState([]);
   const [recommendedMentors, setRecommendedMentors] = useState([]);
   const [readiness, setReadiness] = useState(null);
   const [researchMentors, setResearchMentors] = useState([]);
   const [resumeText, setResumeText] = useState("");
-const [resumeResult, setResumeResult] = useState(null);
-const [analyzingResume, setAnalyzingResume] = useState(false);
+  const [roles, setRoles] = useState([]);
+  const [selectedRole, setSelectedRole] = useState("");
+  const [simulation, setSimulation] = useState(null);
+  const [resumeResult, setResumeResult] = useState(null);
+  const [analyzingResume, setAnalyzingResume] = useState(false);
 
   useEffect(() => {
-    // Get all students and find one (simple & safe)
     api
-  .get(`/analysis/student/${id}/research-compatibility`)
-  .then(res => setResearchMentors(res.data))
-  .catch(() => setResearchMentors([]));
-
-    api.get(`/analysis/student/${id}/readiness`)
-  .then(res => setReadiness(res.data))
-  .catch(() => setReadiness(null));
-
-    api.get(`/analysis/student/${id}/skill-gap`)
-  .then(res => setSkillGap(res.data))
-  .catch(() => setSkillGap([]));
+      .get(`/analysis/student/${id}/research-compatibility`)
+      .then((res) => setResearchMentors(res.data))
+      .catch(() => setResearchMentors([]));
 
     api
-  .get(`/recommendations/student/${id}/projects`)
-  .then(res => setRecommendedProjects(res.data));
-    api.get("/students").then(res => {
-      const found = res.data.find(s => s.id === Number(id));
+      .get("/career-roles")
+      .then((res) => setRoles(res.data))
+      .catch(() => setRoles([]));
+
+    api
+      .get(`/analysis/student/${id}/readiness`)
+      .then((res) => setReadiness(res.data))
+      .catch(() => setReadiness(null));
+
+    api
+      .get(`/analysis/student/${id}/skill-gap`)
+      .then((res) => setSkillGap(res.data))
+      .catch(() => setSkillGap([]));
+
+    api
+      .get(`/recommendations/student/${id}/projects`)
+      .then((res) => setRecommendedProjects(res.data));
+
+    api.get("/students").then((res) => {
+      const found = res.data.find((s) => s.id === Number(id));
       setStudent(found);
     });
-    api.get(`/student/${id}/projects`)
-  .then(res => setProjects(res.data))
-  .catch(() => setProjects([]));
-    api.get(`/student/${id}/mentor`)
-  .then(res => {
-    if (res.data.length > 0) setMentor(res.data[0]);
-  })
-  .catch(() => setMentor(null));
-    api.get(`/recommendations/student/${id}/mentors`)
-  .then(res => setRecommendedMentors(res.data))
-  .catch(() => setRecommendedMentors([]));
 
-    // Get skills
-    api.get(`/student/${id}/skills`)
-      .then(res => setSkills(res.data))
+    api
+      .get(`/student/${id}/projects`)
+      .then((res) => setProjects(res.data))
+      .catch(() => setProjects([]));
+
+    api
+      .get(`/student/${id}/mentor`)
+      .then((res) => {
+        if (res.data.length > 0) setMentor(res.data[0]);
+      })
+      .catch(() => setMentor(null));
+
+    api
+      .get(`/recommendations/student/${id}/mentors`)
+      .then((res) => setRecommendedMentors(res.data))
+      .catch(() => setRecommendedMentors([]));
+
+    api
+      .get(`/student/${id}/skills`)
+      .then((res) => setSkills(res.data))
       .catch(() => setSkills([]));
   }, [id]);
-    
 
-  if (!student) return <div style={{ padding: "40px" }}>Loading...</div>;
+  const analyzeResume = async () => {
+    if (!resumeText.trim()) {
+      alert("Please paste resume content first");
+      return;
+    }
 
-  const container = {
-    padding: "40px",
-    maxWidth: "900px"
+    try {
+      setAnalyzingResume(true);
+      const res = await api.post(`/resume/analyze/${id}`, { resumeText });
+      setResumeResult(res.data);
+    } catch (err) {
+      console.error(err);
+      alert("Resume analysis failed");
+    } finally {
+      setAnalyzingResume(false);
+    }
   };
 
-  
-
-  const section = {
-    marginTop: "30px"
+  const runSimulation = () => {
+    if (!selectedRole) return;
+    api
+      .get(`/simulation/student/${id}/role/${encodeURIComponent(selectedRole)}`)
+      .then((res) => setSimulation(res.data))
+      .catch(() => setSimulation(null));
   };
 
-  const sectionTitle = {
-    fontSize: "22px",
-    fontWeight: "bold",
-    marginBottom: "10px"
-  };
-
-  const text = {
-    fontSize: "16px",
-    marginBottom: "6px"
-  };
-
-  const badge = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "8px 14px",
-  borderRadius: "20px",
-  backgroundColor: "#eef2ff",
-  marginRight: "10px",
-  marginBottom: "10px",
-  fontSize: "14px",
-  fontWeight: "500"
-};
-const analyzeResume = async () => {
-  if (!resumeText.trim()) {
-    alert("Please paste resume content first");
-    return;
+  if (!student) {
+    return <div style={{ padding: "40px", color: "#334155" }}>Loading...</div>;
   }
 
-  try {
-    setAnalyzingResume(true);
+  const scoreColor = (value) => {
+    if (value > 70) return "#0f766e";
+    if (value > 40) return "#b45309";
+    return "#b91c1c";
+  };
 
-    const res = await api.post(
-      `/resume/analyze/${id}`,
-      { resumeText }
-    );
-
-    setResumeResult(res.data);
-  } catch (err) {
-    console.error(err);
-    alert("Resume analysis failed");
-  } finally {
-    setAnalyzingResume(false);
-  }
-};
-
-
-  return (
-    <div style={container}>
-      {/* Profile Header */}
-<div
-  style={{
-    padding: "25px",
-    borderRadius: "12px",
-    background: "#f9fbff",
-    border: "1px solid #dce3ff",
-    marginBottom: "40px"
-  }}
->
-  <div
-    style={{
+  const styles = {
+    page: {
+      maxWidth: "1100px",
+      margin: "0 auto",
+      padding: "28px 24px 56px",
+      color: "#0f172a",
+      fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
+      background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)"
+    },
+    hero: {
+      background: "linear-gradient(125deg, #eff6ff 0%, #eef2ff 55%, #f8fafc 100%)",
+      border: "1px solid #dbeafe",
+      borderRadius: "18px",
+      padding: "26px",
+      boxShadow: "0 16px 30px rgba(15, 23, 42, 0.08)",
+      marginBottom: "24px"
+    },
+    heroTop: {
       display: "flex",
       justifyContent: "space-between",
-      alignItems: "center"
-    }}
-  >
-    <div>
-      <div style={{ fontSize: "34px", fontWeight: "bold" }}>
-        {student.name}
-      </div>
-      <div style={{ fontSize: "16px", color: "#555", marginTop: "4px" }}>
-        {student.program} • {student.dept} • Year {student.year}
-      </div>
-    </div>
-    {readiness && (
-  <div style={{ marginTop: "25px" }}>
-    <h2>🚀 Career Readiness</h2>
-
-    <div
-      style={{
-        width: "100%",
-        height: "16px",
-        background: "#eee",
-        borderRadius: "10px",
-        overflow: "hidden",
-        marginTop: "8px"
-      }}
-    >
-      <div
-        style={{
-          width: `${readiness.readiness}%`,
-          height: "100%",
-          background:
-            readiness.readiness > 70
-              ? "#4caf50"
-              : readiness.readiness > 40
-              ? "#ff9800"
-              : "#f44336"
-        }}
-      />
-    </div>
-
-    <p style={{ marginTop: "6px", fontSize: "14px" }}>
-      {readiness.readiness}% ready • {readiness.ownedCount} /{" "}
-      {readiness.totalRequired} skills acquired
-    </p>
-  </div>
-)}
-
-    <div
-      style={{
-        padding: "12px 18px",
-        borderRadius: "30px",
-        backgroundColor: "#2f5fff",
-        color: "white",
-        fontSize: "18px",
-        fontWeight: "bold"
-      }}
-    >
-      GPA {student.gpa}
-    </div>
-  </div>
-
-  <div style={{ marginTop: "15px", fontSize: "14px", color: "#333" }}>
-    📧 {student.email} &nbsp;&nbsp;|&nbsp;&nbsp; 🌍 {student.country}
-  </div>
-</div>
-{/* Mentor */}
-<div style={section}>
-  <div style={sectionTitle}>Faculty Mentor</div>
-
-  {mentor ? (
-    <div
-      style={{
-        padding: "15px",
-        borderRadius: "10px",
-        border: "1px solid #ddd",
-        background: "#f5f7ff"
-      }}
-    >
-      <div style={{ fontWeight: "bold", fontSize: "18px" }}>
-        {mentor.name}
-      </div>
-      <div style={{ fontSize: "14px", color: "#555" }}>
-        {mentor.designation}, {mentor.department}
-      </div>
-    </div>
-  ) : (
-    <div style={text}>No mentor assigned</div>
-  )}
-</div>
-
-{/* Projects */}
-<div style={section}>
-  <div style={sectionTitle}>Projects</div>
-
-  {projects.length > 0 ? (
-    projects.map((p, idx) => (
-      <div
-        key={idx}
-        style={{
-          padding: "12px",
-          border: "1px solid #ddd",
-          borderRadius: "8px",
-          marginBottom: "10px",
-          background: "#fafafa"
-        }}
-      >
-        <div style={{ fontWeight: "bold" }}>{p.title}</div>
-        <div style={{ fontSize: "14px", color: "#666" }}>
-          Domain: {p.domain}
-        </div>
-      </div>
-    ))
-  ) : (
-    <div style={text}>No projects linked</div>
-  )}
-</div>
-<h2 style={{ marginTop: "50px" }}>🎓 Recommended Research Mentors</h2>
-
-{researchMentors.length === 0 ? (
-  <p style={{ color: "#666" }}>
-    No research mentor recommendations available yet.
-  </p>
-) : (
-  <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
-    {researchMentors.map((m, i) => (
-      <div
-        key={i}
-        style={{
-          width: "300px",
-          padding: "20px",
-          borderRadius: "14px",
-          background: "#ffffff",
-          border: "1px solid #e0e0e0",
-          boxShadow: "0 8px 20px rgba(0,0,0,0.08)"
-        }}
-      >
-        <h3 style={{ marginBottom: "6px" }}>{m.faculty}</h3>
-
-        <div style={{ fontSize: "14px", color: "#555" }}>
-          {m.designation} • {m.department}
-        </div>
-
-        {/* Compatibility bar */}
-        <div
-          style={{
-            marginTop: "12px",
-            height: "10px",
-            background: "#eee",
-            borderRadius: "6px",
-            overflow: "hidden"
-          }}
-        >
-          <div
-            style={{
-              width: `${m.compatibility}%`,
-              height: "100%",
-              background:
-                m.compatibility > 70
-                  ? "#4caf50"
-                  : m.compatibility > 40
-                  ? "#ff9800"
-                  : "#f44336"
-            }}
-          />
-        </div>
-
-        <div
-          style={{
-            marginTop: "6px",
-            fontSize: "13px",
-            fontWeight: "bold"
-          }}
-        >
-          Compatibility: {m.compatibility}%
-        </div>
-
-        {/* Explanation */}
-        <div style={{ marginTop: "12px", fontSize: "13px", color: "#444" }}>
-          <strong>Why this mentor?</strong>
-          <ul style={{ paddingLeft: "18px", marginTop: "6px" }}>
-            {m.matchedResearch.map((r, idx) => (
-              <li key={idx}>Shared interest in {r}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    ))}
-  </div>
-)}
-
-<h2 style={{ marginTop: "40px" }}>🔥 Recommended Projects</h2>
-
-{recommendedProjects.length === 0 && (
-  <p style={{ color: "#777" }}>
-    No recommendations available yet.
-  </p>
-)}
-
-{recommendedProjects.map((p, i) => (
-  <div
-    key={i}
-    style={{
-      padding: "15px",
-      marginBottom: "15px",
+      gap: "24px",
+      alignItems: "flex-start",
+      flexWrap: "wrap"
+    },
+    name: { fontSize: "34px", fontWeight: 800, lineHeight: 1.2 },
+    subtitle: { marginTop: "8px", color: "#475569", fontSize: "15px" },
+    gpa: {
+      background: "#1d4ed8",
+      color: "#fff",
+      borderRadius: "999px",
+      padding: "10px 18px",
+      fontSize: "18px",
+      fontWeight: 700,
+      minWidth: "120px",
+      textAlign: "center"
+    },
+    contact: {
+      marginTop: "14px",
+      color: "#334155",
+      fontSize: "14px",
+      display: "flex",
+      gap: "12px",
+      flexWrap: "wrap"
+    },
+    readinessWrap: {
+      marginTop: "16px",
+      maxWidth: "460px",
+      background: "#ffffffc2",
+      border: "1px solid #cbd5e1",
+      borderRadius: "12px",
+      padding: "12px 14px"
+    },
+    readinessTitle: { margin: 0, fontSize: "16px" },
+    barTrack: {
+      marginTop: "8px",
+      height: "12px",
+      background: "#e2e8f0",
+      borderRadius: "999px",
+      overflow: "hidden"
+    },
+    section: { marginTop: "24px" },
+    sectionTitle: {
+      marginBottom: "12px",
+      fontSize: "22px",
+      fontWeight: 750,
+      color: "#0f172a"
+    },
+    card: {
+      border: "1px solid #e2e8f0",
+      borderRadius: "14px",
+      background: "#fff",
+      padding: "16px",
+      boxShadow: "0 8px 20px rgba(15, 23, 42, 0.06)"
+    },
+    grid: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+      gap: "14px"
+    },
+    muted: { color: "#64748b", fontSize: "14px" },
+    badge: {
+      display: "inline-flex",
+      alignItems: "center",
+      marginRight: "8px",
+      marginBottom: "8px",
+      padding: "7px 12px",
+      borderRadius: "999px",
+      border: "1px solid #dbeafe",
+      background: "#eff6ff",
+      color: "#1e3a8a",
+      fontSize: "13px",
+      fontWeight: 600
+    },
+    badBadge: {
+      display: "inline-flex",
+      marginRight: "8px",
+      marginBottom: "8px",
+      padding: "7px 12px",
+      borderRadius: "999px",
+      border: "1px solid #fecaca",
+      background: "#fef2f2",
+      color: "#991b1b",
+      fontSize: "13px",
+      fontWeight: 600
+    },
+    input: {
+      width: "100%",
+      padding: "12px",
       borderRadius: "10px",
-      border: "1px solid #ddd",
-      background: "#fafafa"
-    }}
-  >
-    <h3 style={{ marginBottom: "5px" }}>{p.title}</h3>
-    <p style={{ margin: "4px 0" }}>
-      <strong>Domain:</strong> {p.domain}
-    </p>
+      border: "1px solid #cbd5e1",
+      fontSize: "14px",
+      outline: "none",
+      boxSizing: "border-box"
+    },
+    button: {
+      marginTop: "12px",
+      padding: "10px 16px",
+      borderRadius: "10px",
+      border: "none",
+      background: "#2563eb",
+      color: "#fff",
+      cursor: "pointer",
+      fontWeight: 600
+    },
+    select: {
+      padding: "10px 12px",
+      borderRadius: "10px",
+      border: "1px solid #cbd5e1",
+      marginRight: "8px",
+      minWidth: "220px"
+    }
+  };
 
-    <p style={{ margin: "4px 0" }}>
-      <strong>Matched Skills:</strong>{" "}
-      {p.matchedSkills.join(", ")}
-    </p>
+  return (
+    <div style={styles.page}>
+      <div style={styles.hero}>
+        <div style={styles.heroTop}>
+          <div>
+            <div style={styles.name}>{student.name}</div>
+            <div style={styles.subtitle}>
+              {student.program} | {student.dept} | Year {student.year}
+            </div>
+          </div>
+          <div style={styles.gpa}>GPA {student.gpa}</div>
+        </div>
 
-    <p style={{ margin: "4px 0", color: "#444" }}>
-      <strong>Relevance:</strong>{" "}
-      {"⭐".repeat(p.relevance)}
-    </p>
-    <p style={{ fontSize: "13px", color: "#555", marginTop: "6px" }}>
-  💡 {p.explanation}
-</p>
-
-  </div>
-))}
-        <h2 style={{ marginTop: "40px" }}>🎓 Recommended Mentors</h2>
-
-{recommendedMentors.length === 0 && (
-  <p style={{ color: "#777" }}>No mentor recommendations available.</p>
-)}
-
-<div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
-  {recommendedMentors.map((m, i) => (
-    <div
-      key={i}
-      style={{
-        width: "280px",
-        padding: "20px",
-        borderRadius: "12px",
-        border: "1px solid #e0e0e0",
-        background: "#fff",
-        boxShadow: "0 6px 15px rgba(0,0,0,0.08)"
-      }}
-    >
-      <h3 style={{ marginBottom: "5px" }}>{m.mentor}</h3>
-      <div style={{ fontSize: "14px", color: "#555" }}>
-        {m.designation} • {m.department}
-      </div>
-
-      <div
-        style={{
-          marginTop: "10px",
-          padding: "6px 10px",
-          background: "#eef4ff",
-          borderRadius: "20px",
-          display: "inline-block",
-          fontSize: "13px",
-          fontWeight: "bold"
-        }}
-      >
-        Relevance Score: {m.relevance}
-      </div>
-
-      {m.matchedSkills.length > 0 && (
-        <>
-          <h4 style={{ marginTop: "15px" }}>Matched Skills</h4>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            {m.matchedSkills.map((s, idx) => (
-              <span
-                key={idx}
+        {readiness && (
+          <div style={styles.readinessWrap}>
+            <h3 style={styles.readinessTitle}>Career Readiness</h3>
+            <div style={styles.barTrack}>
+              <div
                 style={{
-                  padding: "6px 10px",
-                  background: "#f1f1f1",
-                  borderRadius: "20px",
-                  fontSize: "12px"
+                  width: `${readiness.readiness}%`,
+                  height: "100%",
+                  background: scoreColor(readiness.readiness)
                 }}
-              >
-                {s}
-              </span>
+              />
+            </div>
+            <p style={{ margin: "8px 0 0", fontSize: "13px", color: "#334155" }}>
+              {readiness.readiness}% ready | {readiness.ownedCount} / {readiness.totalRequired} skills acquired
+            </p>
+          </div>
+        )}
+
+        <div style={styles.contact}>
+          <span>{student.email}</span>
+          <span>{student.country}</span>
+        </div>
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Faculty Mentor</div>
+        {mentor ? (
+          <div style={styles.card}>
+            <div style={{ fontSize: "18px", fontWeight: 700 }}>{mentor.name}</div>
+            <div style={styles.muted}>
+              {mentor.designation}, {mentor.department}
+            </div>
+          </div>
+        ) : (
+          <div style={styles.muted}>No mentor assigned</div>
+        )}
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Projects</div>
+        {projects.length > 0 ? (
+          <div style={styles.grid}>
+            {projects.map((p, idx) => (
+              <div key={idx} style={styles.card}>
+                <div style={{ fontWeight: 700 }}>{p.title}</div>
+                <div style={styles.muted}>Domain: {p.domain}</div>
+              </div>
             ))}
           </div>
-        </>
-      )}
+        ) : (
+          <div style={styles.muted}>No projects linked</div>
+        )}
+      </div>
 
-      {m.matchedResearch.length > 0 && (
-        <>
-          <h4 style={{ marginTop: "12px" }}>Research Alignment</h4>
-          <ul style={{ paddingLeft: "18px", fontSize: "13px" }}>
-            {m.matchedResearch.map((r, idx) => (
-              <li key={idx}>{r}</li>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Recommended Research Mentors</div>
+        {researchMentors.length === 0 ? (
+          <p style={styles.muted}>No research mentor recommendations available yet.</p>
+        ) : (
+          <div style={styles.grid}>
+            {researchMentors.map((m, i) => (
+              <div key={i} style={styles.card}>
+                <h3 style={{ margin: 0 }}>{m.faculty}</h3>
+                <div style={styles.muted}>
+                  {m.designation} | {m.department}
+                </div>
+
+                <div style={styles.barTrack}>
+                  <div
+                    style={{
+                      width: `${m.compatibility}%`,
+                      height: "100%",
+                      background: scoreColor(m.compatibility)
+                    }}
+                  />
+                </div>
+                <div style={{ marginTop: "6px", fontWeight: 600, fontSize: "13px" }}>
+                  Compatibility: {m.compatibility}%
+                </div>
+
+                <ul style={{ margin: "10px 0 0", paddingLeft: "18px", color: "#334155", fontSize: "13px" }}>
+                  {m.matchedResearch.map((r, idx) => (
+                    <li key={idx}>Shared interest in {r}</li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
-        </>
-      )}
-    </div>
-  ))}
-</div>
-
-      {/* Academic Info */}
-      <div style={section}>
-        <div style={sectionTitle}>Academic Information</div>
-        <div style={text}>University ID: {student.university_id}</div>
-        <div style={text}>Year: {student.year}</div>
-        <div style={text}>Enrollment Year: {student.enrollment_year}</div>
-        <div style={text}>GPA: {student.gpa}</div>
+          </div>
+        )}
       </div>
 
-      {/* Career */}
-      <div style={section}>
-        <div style={sectionTitle}>Career Goal</div>
-        <div style={text}>{student.career_goal}</div>
-      </div>
-    {/* ================= Resume Analyzer ================= */}
-<div style={{ marginTop: "60px" }}>
-  <h2>📄 Resume Analyzer</h2>
-
-  <textarea
-    rows="6"
-    placeholder="Paste resume content here..."
-    value={resumeText}
-    onChange={e => setResumeText(e.target.value)}
-    style={{
-      width: "100%",
-      padding: "14px",
-      borderRadius: "10px",
-      border: "1px solid #ccc",
-      marginTop: "12px",
-      fontSize: "14px"
-    }}
-  />
-
-  <button
-    onClick={analyzeResume}
-    disabled={analyzingResume}
-    style={{
-      marginTop: "15px",
-      padding: "12px 22px",
-      borderRadius: "10px",
-      background: "#2f5fff",
-      color: "white",
-      border: "none",
-      fontSize: "14px",
-      cursor: "pointer"
-    }}
-  >
-    {analyzingResume ? "Analyzing..." : "Analyze Resume"}
-  </button>
-
-  {resumeResult && (
-    <div
-      style={{
-        marginTop: "30px",
-        padding: "22px",
-        borderRadius: "14px",
-        background: "#f9fbff",
-        border: "1px solid #dce3ff"
-      }}
-    >
-      <h3>🎯 Target Role: {resumeResult.role}</h3>
-      <h3>📊 Resume Score: {resumeResult.score}%</h3>
-
-      <h4 style={{ marginTop: "15px" }}>✅ Matched Skills</h4>
-      <ul>
-        {resumeResult.matchedSkills.map((s, i) => (
-          <li key={i}>{s}</li>
-        ))}
-      </ul>
-
-      <h4 style={{ marginTop: "15px" }}>❌ Missing Skills</h4>
-      <ul>
-        {resumeResult.missingSkills.map((s, i) => (
-          <li key={i}>{s}</li>
-        ))}
-      </ul>
-    </div>
-  )}
-</div>
-{/* ================= END Resume Analyzer ================= */}
-
-      {/* Interests */}
-      <div style={section}>
-        <div style={sectionTitle}>Interests</div>
-        {student.interests?.map((i, idx) => (
-          <span key={idx} style={badge}>{i}</span>
-        ))}
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Recommended Projects</div>
+        {recommendedProjects.length === 0 && <p style={styles.muted}>No recommendations available yet.</p>}
+        <div style={styles.grid}>
+          {recommendedProjects.map((p, i) => (
+            <div key={i} style={styles.card}>
+              <h3 style={{ margin: 0 }}>{p.title}</h3>
+              <p style={{ margin: "8px 0 0" }}>
+                <strong>Domain:</strong> {p.domain}
+              </p>
+              <p style={{ margin: "6px 0 0" }}>
+                <strong>Matched Skills:</strong> {p.matchedSkills.join(", ")}
+              </p>
+              <p style={{ margin: "6px 0 0" }}>
+                <strong>Relevance:</strong> {p.relevance}
+              </p>
+              <p style={{ margin: "8px 0 0", fontSize: "13px", color: "#475569" }}>{p.explanation}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Skills */}
-      <div style={section}>
-        <div style={sectionTitle}>Skills</div>
-        {skills.length > 0
-          ? skills.map((s, idx) => (
-              <span key={idx} style={badge}>{s}</span>
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Recommended Mentors</div>
+        {recommendedMentors.length === 0 && <p style={styles.muted}>No mentor recommendations available.</p>}
+        <div style={styles.grid}>
+          {recommendedMentors.map((m, i) => (
+            <div key={i} style={styles.card}>
+              <h3 style={{ margin: 0 }}>{m.mentor}</h3>
+              <div style={styles.muted}>
+                {m.designation} | {m.department}
+              </div>
+
+              <div
+                style={{
+                  marginTop: "10px",
+                  display: "inline-block",
+                  padding: "6px 10px",
+                  borderRadius: "999px",
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  color: "#1e3a8a",
+                  fontSize: "13px",
+                  fontWeight: 700
+                }}
+              >
+                Relevance Score: {m.relevance}
+              </div>
+
+              {m.matchedSkills.length > 0 && (
+                <>
+                  <h4 style={{ marginBottom: "8px" }}>Matched Skills</h4>
+                  <div>
+                    {m.matchedSkills.map((s, idx) => (
+                      <span key={idx} style={styles.badge}>
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {m.matchedResearch.length > 0 && (
+                <>
+                  <h4 style={{ marginBottom: "8px" }}>Research Alignment</h4>
+                  <ul style={{ margin: 0, paddingLeft: "18px", color: "#334155", fontSize: "13px" }}>
+                    {m.matchedResearch.map((r, idx) => (
+                      <li key={idx}>{r}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Academic Information</div>
+        <div style={styles.card}>
+          <div style={styles.muted}>University ID: {student.university_id}</div>
+          <div style={styles.muted}>Year: {student.year}</div>
+          <div style={styles.muted}>Enrollment Year: {student.enrollment_year}</div>
+          <div style={styles.muted}>GPA: {student.gpa}</div>
+        </div>
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Career Goal</div>
+        <div style={styles.card}>{student.career_goal}</div>
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Resume Analyzer</div>
+        <div style={styles.card}>
+          <textarea
+            rows="6"
+            placeholder="Paste resume content here..."
+            value={resumeText}
+            onChange={(e) => setResumeText(e.target.value)}
+            style={styles.input}
+          />
+
+          <button onClick={analyzeResume} disabled={analyzingResume} style={styles.button}>
+            {analyzingResume ? "Analyzing..." : "Analyze Resume"}
+          </button>
+
+          {resumeResult && (
+            <div
+              style={{
+                marginTop: "18px",
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: "12px",
+                padding: "14px"
+              }}
+            >
+              <h3 style={{ marginTop: 0 }}>Target Role: {resumeResult.role}</h3>
+              <h3>Resume Score: {resumeResult.score}%</h3>
+
+              <h4 style={{ marginBottom: "8px" }}>Matched Skills</h4>
+              <ul style={{ marginTop: 0, paddingLeft: "18px" }}>
+                {resumeResult.matchedSkills.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+
+              <h4 style={{ marginBottom: "8px" }}>Missing Skills</h4>
+              <ul style={{ marginTop: 0, paddingLeft: "18px" }}>
+                {resumeResult.missingSkills.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Interests</div>
+        <div style={styles.card}>
+          {student.interests?.map((item, idx) => (
+            <span key={idx} style={styles.badge}>
+              {item}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Skills</div>
+        <div style={styles.card}>
+          {skills.length > 0 ? (
+            skills.map((s, idx) => (
+              <span key={idx} style={styles.badge}>
+                {s}
+              </span>
             ))
-          : <div style={text}>No skills linked</div>
-        }
+          ) : (
+            <div style={styles.muted}>No skills linked</div>
+          )}
+        </div>
       </div>
-      <h2 style={{ marginTop: "40px" }}>📈 Skill Gap Analysis</h2>
 
-{skillGap.length > 0 ? (
-  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-    {skillGap.map((s, i) => (
-      <span
-        key={i}
-        style={{
-          padding: "10px 14px",
-          borderRadius: "20px",
-          background: "#ffecec",
-          color: "#b00020",
-          fontWeight: "500"
-        }}
-      >
-        {s}
-      </span>
-    ))}
-  </div>
-) : (
-  <p style={{ color: "#555" }}>
-    No immediate skill gaps detected 🎉
-  </p>
-)}
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Skill Gap Analysis</div>
+        <div style={styles.card}>
+          {skillGap.length > 0 ? (
+            skillGap.map((s, i) => (
+              <span key={i} style={styles.badBadge}>
+                {s}
+              </span>
+            ))
+          ) : (
+            <p style={styles.muted}>No immediate skill gaps detected.</p>
+          )}
+        </div>
+      </div>
 
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Career Simulation</div>
+        <div style={styles.card}>
+          <div style={{ marginBottom: "14px" }}>
+            <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)} style={styles.select}>
+              <option value="">Select Career Role</option>
+              {roles.map((role, i) => (
+                <option key={i} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+            <button onClick={runSimulation} style={{ ...styles.button, marginTop: 0 }}>
+              Simulate
+            </button>
+          </div>
+
+          {simulation && (
+            <div style={{ marginTop: "6px" }}>
+              <h3 style={{ marginBottom: "8px" }}>Simulation Result</h3>
+              <p style={{ margin: "6px 0" }}>
+                Current Readiness: <strong>{simulation.currentReadiness}%</strong>
+              </p>
+              <p style={{ margin: "6px 0" }}>
+                Improvement Potential: <strong>+{simulation.improvement}%</strong>
+              </p>
+              <h4 style={{ marginBottom: "8px" }}>Missing Skills</h4>
+              {simulation.missingSkills.length > 0 ? (
+                simulation.missingSkills.map((s, i) => (
+                  <span key={i} style={styles.badBadge}>
+                    {s}
+                  </span>
+                ))
+              ) : (
+                <p style={styles.muted}>No missing skills.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
-    
   );
 }
 
