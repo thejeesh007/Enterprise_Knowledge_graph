@@ -42,10 +42,180 @@ function extractSkillsFromResume(resumeText) {
   );
 }
 
+function extractSectionBlock(resumeText, headingPatterns, allHeadingPatterns) {
+  if (!resumeText) return { text: "", found: false };
+  const text = resumeText.replace(/\r/g, "");
+  const headingRegex = new RegExp(`^\\s*(${headingPatterns.join("|")})\\s*$`, "im");
+  const startMatch = headingRegex.exec(text);
+  if (!startMatch) return { text: "", found: false };
+
+  const startIndex = startMatch.index + startMatch[0].length;
+  const after = text.slice(startIndex);
+  const stopRegex = new RegExp(`\\n\\s*(?:${allHeadingPatterns.join("|")})\\s*\\n`, "i");
+  const stopMatch = stopRegex.exec(after);
+  const block = stopMatch ? after.slice(0, stopMatch.index) : after;
+
+  return { text: block.trim(), found: true };
+}
+
+function buildSectionAnalysis(resumeText) {
+  const sectionDefs = {
+    experience: ["experience", "work experience", "professional experience", "internship", "internships"],
+    projects: ["projects", "academic projects", "personal projects"],
+    skills: ["skills", "technical skills", "core skills"],
+    education: ["education", "academic background", "qualifications"]
+  };
+  const allHeadingPatterns = Object.values(sectionDefs).flat();
+
+  const sections = {};
+  Object.entries(sectionDefs).forEach(([sectionName, headingPatterns]) => {
+    const { text, found } = extractSectionBlock(resumeText, headingPatterns, allHeadingPatterns);
+    const bulletLines = (text.match(/(^|\n)\s*[-*•]/g) || []).length;
+    const confidence = Math.min(
+      1,
+      (found ? 0.55 : 0) + (text.length > 100 ? 0.25 : 0) + (bulletLines >= 2 ? 0.2 : 0)
+    );
+
+    sections[sectionName] = {
+      found,
+      confidence: Number(confidence.toFixed(2)),
+      content: text
+    };
+  });
+
+  return sections;
+}
+
+function runATSChecks({ resumeText, sections, requiredSkills, matchedSkills }) {
+  const text = (resumeText || "").toLowerCase();
+  const projectsText = (sections.projects?.content || "").toLowerCase();
+
+  const actionVerbs = [
+    "built", "developed", "implemented", "designed", "optimized", "led",
+    "created", "improved", "delivered", "engineered", "deployed", "automated"
+  ];
+  const actionVerbsFound = actionVerbs.filter((verb) =>
+    new RegExp(`\\b${verb}\\b`, "i").test(text)
+  );
+
+  const quantifiedMatches = resumeText.match(
+    /\b\d+(\.\d+)?\s*(%|x|k|m|million|billion|users?|clients?|days?|months?|years?)\b/gi
+  ) || [];
+
+  const projectDepthSignals = {
+    problemStatement: /\b(problem|challenge|pain point|objective|goal)\b/i.test(projectsText),
+    implementationDetail: /\b(architecture|pipeline|api|database|model|algorithm|workflow|microservice)\b/i.test(projectsText),
+    outcomes: /\b(result|impact|improved|reduced|increased|achieved|deployed)\b/i.test(projectsText)
+  };
+  const depthSignalCount = Object.values(projectDepthSignals).filter(Boolean).length;
+
+  const keywordCoverage =
+    requiredSkills.length === 0 ? 0 : Math.round((matchedSkills.length / requiredSkills.length) * 100);
+
+  const quantifiedImpactScore = Math.min(100, quantifiedMatches.length * 20);
+  const actionVerbScore = Math.min(100, actionVerbsFound.length * 12);
+  const projectDepthScore = Math.round((depthSignalCount / 3) * 100);
+  const atsScore = Math.round(
+    quantifiedImpactScore * 0.25 +
+    actionVerbScore * 0.2 +
+    projectDepthScore * 0.25 +
+    keywordCoverage * 0.3
+  );
+
+  return {
+    score: atsScore,
+    quantifiedImpact: {
+      score: quantifiedImpactScore,
+      count: quantifiedMatches.length,
+      examples: quantifiedMatches.slice(0, 5)
+    },
+    actionVerbs: {
+      score: actionVerbScore,
+      count: actionVerbsFound.length,
+      found: actionVerbsFound
+    },
+    projectDepth: {
+      score: projectDepthScore,
+      signals: projectDepthSignals
+    },
+    missingKeywords: requiredSkills.filter((skill) => !matchedSkills.includes(skill)),
+    keywordCoverage
+  };
+}
+
+function scoreProjectQualityFromResume({ sections, requiredSkills }) {
+  const projectsText = sections.projects?.content || "";
+  const projectsLower = projectsText.toLowerCase();
+  const projectSectionSkills = extractSkillsFromResume(projectsText);
+  const matchedProjectSkills = projectSectionSkills.filter((s) => requiredSkills.includes(s));
+
+  const problemStatementHits = (projectsLower.match(/\b(problem|challenge|objective|goal)\b/g) || []).length;
+  const outcomeHits = (projectsLower.match(/\b(improved|reduced|increased|achieved|result|deployed)\b/g) || []).length;
+  const numericOutcomeHits = (projectsText.match(/\b\d+(\.\d+)?\s*(%|x|k|m|users?|days?|months?|years?)\b/gi) || []).length;
+
+  const problemStatementScore = Math.min(100, problemStatementHits * 25);
+  const techStackRelevanceScore =
+    requiredSkills.length === 0 ? 0 : Math.round((matchedProjectSkills.length / requiredSkills.length) * 100);
+  const outcomesScore = Math.min(100, outcomeHits * 20 + numericOutcomeHits * 20);
+
+  const score = Math.round(
+    problemStatementScore * 0.3 +
+    techStackRelevanceScore * 0.45 +
+    outcomesScore * 0.25
+  );
+
+  return {
+    score,
+    problemStatementScore,
+    techStackRelevanceScore,
+    outcomesScore,
+    matchedProjectSkills,
+    signals: {
+      problemStatementHits,
+      outcomeHits,
+      numericOutcomeHits
+    }
+  };
+}
+
 
 // ---------- Helper ----------
 function toNumber(value) {
   return neo4j.isInt(value) ? value.toNumber() : value;
+}
+
+async function storeRecommendationEvidence(
+  session,
+  { studentId, recommendationType, target, targetLabel, relevance, evidencePaths }
+) {
+  const updatedAt = new Date().toISOString();
+  const evidenceJson = JSON.stringify(evidencePaths || []);
+
+  await session.run(
+    `
+    MATCH (s:Student {id:$studentId})
+    MERGE (e:RecommendationEvidence {
+      studentId:$studentId,
+      recommendationType:$recommendationType,
+      target:$target
+    })
+    SET
+      e.targetLabel = $targetLabel,
+      e.relevance = $relevance,
+      e.evidenceJson = $evidenceJson,
+      e.updatedAt = $updatedAt
+    MERGE (s)-[:HAS_RECOMMENDATION_EVIDENCE]->(e)
+    `,
+    {
+      studentId,
+      recommendationType,
+      target,
+      targetLabel,
+      relevance,
+      evidenceJson,
+      updatedAt
+    }
+  );
 }
 
 // ---------- Health Check ----------
@@ -362,13 +532,51 @@ app.get("/recommendations/student/:id/projects", async (req, res) => {
       { id: studentId }
     );
 
-    const recommendations = result.records.map(r => ({
-      title: r.get("title"),
-      domain: r.get("domain"),
-      matchedSkills: r.get("matchedSkills"),
-      relevance: toNumber(r.get("relevance")),
-      explanation: `Matches ${r.get("matchedSkills").length} of your skills`
-    }));
+    const recommendations = [];
+
+    for (const record of result.records) {
+      const title = record.get("title");
+      const domain = record.get("domain");
+      const matchedSkills = record.get("matchedSkills");
+      const relevance = toNumber(record.get("relevance"));
+
+      const evidenceResult = await session.run(
+        `
+        MATCH (s:Student {id:$id})-[:HAS_SKILL]->(sk:Skill)<-[rel:USES|BUILDS_SKILL]-(p:Project {title:$title})
+        RETURN DISTINCT sk.name AS skill, type(rel) AS relationType
+        LIMIT 5
+        `,
+        { id: studentId, title }
+      );
+
+      const evidencePaths = evidenceResult.records.map((er) => ({
+        type: "skill_alignment",
+        summary: `${title} aligns via ${er.get("skill")}`,
+        path: [
+          "Student",
+          `HAS_SKILL -> ${er.get("skill")}`,
+          `${er.get("relationType")} <- Project:${title}`
+        ]
+      }));
+
+      await storeRecommendationEvidence(session, {
+        studentId,
+        recommendationType: "project",
+        target: title,
+        targetLabel: `${title} (${domain})`,
+        relevance,
+        evidencePaths
+      });
+
+      recommendations.push({
+        title,
+        domain,
+        matchedSkills,
+        relevance,
+        explanation: `Matches ${matchedSkills.length} of your skills`,
+        evidencePaths
+      });
+    }
 
     res.json(recommendations);
 
@@ -459,17 +667,242 @@ app.get("/recommendations/student/:id/mentors", async (req, res) => {
       { id }
     );
 
-    res.json(
-      result.records.map(r => ({
-        mentor: r.get("mentor"),
-        designation: r.get("designation"),
-        department: r.get("department"),
-        matchedSkills: r.get("matchedSkills"),
-        matchedResearch: r.get("matchedResearch"),
-        relevance: toNumber(r.get("relevance"))
-      }))
+    const recommendations = [];
+
+    for (const record of result.records) {
+      const mentor = record.get("mentor");
+      const designation = record.get("designation");
+      const department = record.get("department");
+      const matchedSkills = record.get("matchedSkills");
+      const matchedResearch = record.get("matchedResearch");
+      const relevance = toNumber(record.get("relevance"));
+
+      const skillPathResult = await session.run(
+        `
+        MATCH (s:Student {id:$id})-[:HAS_SKILL]->(sk:Skill)<-[:SPECIALIZED_IN]-(f:Faculty {name:$mentor})
+        RETURN DISTINCT sk.name AS skill
+        LIMIT 3
+        `,
+        { id, mentor }
+      );
+
+      const researchPathResult = await session.run(
+        `
+        MATCH (s:Student {id:$id})-[:INTERESTED_IN]->(ra:ResearchArea)<-[:RESEARCHES_IN]-(f:Faculty {name:$mentor})
+        RETURN DISTINCT ra.name AS area
+        LIMIT 3
+        `,
+        { id, mentor }
+      );
+
+      const evidencePaths = [
+        ...skillPathResult.records.map((sr) => ({
+          type: "skill_alignment",
+          summary: `${mentor} specializes in ${sr.get("skill")}`,
+          path: [
+            "Student",
+            `HAS_SKILL -> ${sr.get("skill")}`,
+            `SPECIALIZED_IN <- Faculty:${mentor}`
+          ]
+        })),
+        ...researchPathResult.records.map((rr) => ({
+          type: "research_alignment",
+          summary: `${mentor} researches ${rr.get("area")}`,
+          path: [
+            "Student",
+            `INTERESTED_IN -> ${rr.get("area")}`,
+            `RESEARCHES_IN <- Faculty:${mentor}`
+          ]
+        }))
+      ];
+
+      await storeRecommendationEvidence(session, {
+        studentId: id,
+        recommendationType: "mentor",
+        target: mentor,
+        targetLabel: `${mentor} (${designation})`,
+        relevance,
+        evidencePaths
+      });
+
+      recommendations.push({
+        mentor,
+        designation,
+        department,
+        matchedSkills,
+        matchedResearch,
+        relevance,
+        evidencePaths
+      });
+    }
+
+    res.json(recommendations);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get("/recommendations/student/:id/evidence", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})-[:HAS_RECOMMENDATION_EVIDENCE]->(e:RecommendationEvidence)
+      RETURN
+        e.recommendationType AS recommendationType,
+        e.target AS target,
+        e.targetLabel AS targetLabel,
+        e.relevance AS relevance,
+        e.evidenceJson AS evidenceJson,
+        e.updatedAt AS updatedAt
+      ORDER BY e.relevance DESC, e.updatedAt DESC
+      `,
+      { id }
     );
 
+    res.json(
+      result.records.map((r) => ({
+        recommendationType: r.get("recommendationType"),
+        target: r.get("target"),
+        targetLabel: r.get("targetLabel"),
+        relevance: toNumber(r.get("relevance")),
+        updatedAt: r.get("updatedAt"),
+        evidencePaths: JSON.parse(r.get("evidenceJson") || "[]")
+      }))
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get("/recommendations/student/:id/evidence-graph", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+  const recommendationType = String(req.query.type || "").toLowerCase();
+  const target = String(req.query.target || "");
+
+  if (!target || !["mentor", "project"].includes(recommendationType)) {
+    return res.status(400).json({ error: "type (mentor|project) and target are required" });
+  }
+
+  try {
+    if (recommendationType === "project") {
+      const result = await session.run(
+        `
+        MATCH (s:Student {id:$id})
+        MATCH (p:Project {title:$target})
+        OPTIONAL MATCH (s)-[:HAS_SKILL]->(sk:Skill)<-[:USES|BUILDS_SKILL]-(p)
+        RETURN
+          id(s) AS studentNodeId,
+          s.name AS studentName,
+          id(p) AS projectNodeId,
+          p.title AS projectTitle,
+          collect(DISTINCT sk.name) AS matchedSkills
+        `,
+        { id, target }
+      );
+
+      if (!result.records.length) {
+        return res.json({ recommendationType, target, nodes: [], links: [] });
+      }
+
+      const row = result.records[0];
+      const studentNodeId = toNumber(row.get("studentNodeId"));
+      const projectNodeId = toNumber(row.get("projectNodeId"));
+      const matchedSkills = row.get("matchedSkills").filter(Boolean);
+
+      const nodes = [
+        { id: studentNodeId, label: "Student", name: row.get("studentName") || "Student" },
+        { id: projectNodeId, label: "Project", name: row.get("projectTitle") || target },
+        ...matchedSkills.map((skill) => ({
+          id: `skill:${skill}`,
+          label: "Skill",
+          name: skill
+        }))
+      ];
+
+      const links = [];
+      if (matchedSkills.length > 0) {
+        matchedSkills.forEach((skill) => {
+          links.push({ source: studentNodeId, target: `skill:${skill}`, type: "HAS_SKILL" });
+          links.push({ source: projectNodeId, target: `skill:${skill}`, type: "USES_SKILL" });
+        });
+      } else {
+        links.push({ source: studentNodeId, target: projectNodeId, type: "RECOMMENDED_FOR" });
+      }
+
+      return res.json({ recommendationType, target, nodes, links });
+    }
+
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})
+      MATCH (f:Faculty)
+      WHERE toLower(trim(f.name)) = toLower(trim($target))
+         OR toLower(trim(f.name)) CONTAINS toLower(trim($target))
+         OR toLower(trim($target)) CONTAINS toLower(trim(f.name))
+      WITH s, f LIMIT 1
+      OPTIONAL MATCH (s)-[:HAS_SKILL]->(sk:Skill)<-[:SPECIALIZED_IN]-(f)
+      WITH s, f, collect(DISTINCT sk.name) AS matchedSkills
+      OPTIONAL MATCH (s)-[:INTERESTED_IN]->(ra:ResearchArea)<-[:RESEARCHES_IN]-(f)
+      RETURN
+        id(s) AS studentNodeId,
+        s.name AS studentName,
+        id(f) AS facultyNodeId,
+        f.name AS facultyName,
+        matchedSkills,
+        collect(DISTINCT ra.name) AS matchedResearch
+      `,
+      { id, target }
+    );
+
+    if (!result.records.length) {
+      return res.json({ recommendationType, target, nodes: [], links: [] });
+    }
+
+    const row = result.records[0];
+    const studentNodeId = toNumber(row.get("studentNodeId"));
+    const facultyNodeId = toNumber(row.get("facultyNodeId"));
+    const matchedSkills = row.get("matchedSkills").filter(Boolean);
+    const matchedResearch = row.get("matchedResearch").filter(Boolean);
+
+    const nodes = [
+      { id: studentNodeId, label: "Student", name: row.get("studentName") || "Student" },
+      { id: facultyNodeId, label: "Faculty", name: row.get("facultyName") || target },
+      ...matchedSkills.map((skill) => ({
+        id: `skill:${skill}`,
+        label: "Skill",
+        name: skill
+      })),
+      ...matchedResearch.map((area) => ({
+        id: `research:${area}`,
+        label: "ResearchArea",
+        name: area
+      }))
+    ];
+
+    const links = [];
+    matchedSkills.forEach((skill) => {
+      links.push({ source: studentNodeId, target: `skill:${skill}`, type: "HAS_SKILL" });
+      links.push({ source: facultyNodeId, target: `skill:${skill}`, type: "SPECIALIZED_IN" });
+    });
+    matchedResearch.forEach((area) => {
+      links.push({ source: studentNodeId, target: `research:${area}`, type: "INTERESTED_IN" });
+      links.push({ source: facultyNodeId, target: `research:${area}`, type: "RESEARCHES_IN" });
+    });
+
+    if (links.length === 0) {
+      links.push({ source: studentNodeId, target: facultyNodeId, type: "RECOMMENDED_FOR" });
+    }
+
+    res.json({ recommendationType, target, nodes, links });
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
@@ -789,6 +1222,7 @@ async function analyzeResumeHandler(req, res) {
     const requiredSkills = requiredResult.records[0]?.get("requiredSkills") || [];
     const resumeSkills = extractSkillsFromResume(resumeText);
     const projectSectionSkills = extractProjectSectionSkills(resumeText);
+    const sectionAnalysis = buildSectionAnalysis(resumeText);
 
     const matchedSkills = resumeSkills.filter((s) => requiredSkills.includes(s));
     const missingSkills = requiredSkills.filter((s) => !resumeSkills.includes(s));
@@ -832,12 +1266,24 @@ async function analyzeResumeHandler(req, res) {
     const finalScore = Math.round(
       skillScore * 0.75 + projectScore * 0.15 + resumeProjectSectionScore * 0.1
     );
+    const atsChecks = runATSChecks({
+      resumeText,
+      sections: sectionAnalysis,
+      requiredSkills,
+      matchedSkills
+    });
+    const projectQuality = scoreProjectQualityFromResume({
+      sections: sectionAnalysis,
+      requiredSkills
+    });
+    const smartScore = Math.round(finalScore * 0.7 + atsChecks.score * 0.2 + projectQuality.score * 0.1);
 
     // Keep response compatible with both current and older frontend fields.
     res.json({
       studentId,
       role: targetRole,
       score: finalScore,
+      smartScore,
       targetRole,
       resumeScore: finalScore,
       scoreBreakdown: {
@@ -849,6 +1295,26 @@ async function analyzeResumeHandler(req, res) {
         matchedProjectSectionSkills,
         weights: { skills: 0.75, graphProjects: 0.15, resumeProjects: 0.1 }
       },
+      sectionAnalysis: {
+        experience: {
+          found: sectionAnalysis.experience.found,
+          confidence: sectionAnalysis.experience.confidence
+        },
+        projects: {
+          found: sectionAnalysis.projects.found,
+          confidence: sectionAnalysis.projects.confidence
+        },
+        skills: {
+          found: sectionAnalysis.skills.found,
+          confidence: sectionAnalysis.skills.confidence
+        },
+        education: {
+          found: sectionAnalysis.education.found,
+          confidence: sectionAnalysis.education.confidence
+        }
+      },
+      atsChecks,
+      projectQuality,
       matchedSkills,
       missingSkills
     });
