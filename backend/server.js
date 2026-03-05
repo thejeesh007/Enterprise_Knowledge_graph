@@ -184,6 +184,10 @@ function toNumber(value) {
   return neo4j.isInt(value) ? value.toNumber() : value;
 }
 
+function uniqueStrings(list = []) {
+  return [...new Set((list || []).filter(Boolean))];
+}
+
 async function storeRecommendationEvidence(
   session,
   { studentId, recommendationType, target, targetLabel, relevance, evidencePaths }
@@ -903,6 +907,227 @@ app.get("/recommendations/student/:id/evidence-graph", async (req, res) => {
     }
 
     res.json({ recommendationType, target, nodes, links });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get("/analysis/student/:id/bridge-to-role", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})-[:ASPIRES_TO]->(r:CareerRole)
+      MATCH (r)-[:REQUIRES_SKILL]->(req:Skill)
+      OPTIONAL MATCH (s)-[:HAS_SKILL]->(owned:Skill)
+      WITH s, r,
+           collect(DISTINCT req.name) AS requiredSkills,
+           collect(DISTINCT owned.name) AS ownedSkills
+      RETURN r.name AS targetRole, requiredSkills, ownedSkills
+      `,
+      { id }
+    );
+
+    if (!result.records.length) {
+      return res.status(404).json({ error: "Student or target role not found" });
+    }
+
+    const row = result.records[0];
+    const targetRole = row.get("targetRole");
+    const requiredSkills = uniqueStrings(row.get("requiredSkills"));
+    const ownedSkills = uniqueStrings(row.get("ownedSkills"));
+    const missingSkills = requiredSkills.filter((s) => !ownedSkills.includes(s));
+
+    const bridgeItems = [];
+    for (const skill of missingSkills) {
+      const pathResult = await session.run(
+        `
+        MATCH (sk:Skill {name:$skill})
+        OPTIONAL MATCH (p:Project)-[:USES|BUILDS_SKILL]->(sk)
+        WITH sk, collect(DISTINCT p.title)[0..3] AS projectTitles
+        OPTIONAL MATCH (c:Course)-[:COVERS_SKILL|TEACHES_SKILL|BUILDS_SKILL]->(sk)
+        RETURN
+          sk.name AS skill,
+          projectTitles,
+          collect(DISTINCT coalesce(c.name, c.code))[0..3] AS courseNames
+        `,
+        { skill }
+      );
+
+      const pr = pathResult.records[0];
+      const viaProjects = uniqueStrings(pr?.get("projectTitles") || []);
+      const viaCourses = uniqueStrings(pr?.get("courseNames") || []);
+      const evidencePaths = [
+        {
+          summary: `CareerRole:${targetRole} requires ${skill}`,
+          path: [`Student`, `ASPIRES_TO -> ${targetRole}`, `REQUIRES_SKILL -> ${skill}`]
+        },
+        ...viaProjects.map((p) => ({
+          summary: `${p} can help build ${skill}`,
+          path: [`Project:${p}`, `BUILDS_SKILL/USES -> ${skill}`, `enables path to ${targetRole}`]
+        })),
+        ...viaCourses.map((c) => ({
+          summary: `${c} can support ${skill}`,
+          path: [`Course:${c}`, `COVERS/TEACHES_SKILL -> ${skill}`, `enables path to ${targetRole}`]
+        }))
+      ];
+
+      bridgeItems.push({
+        skill,
+        viaProjects,
+        viaCourses,
+        evidencePaths
+      });
+    }
+
+    const currentReadiness =
+      requiredSkills.length === 0
+        ? 0
+        : Math.round((ownedSkills.filter((s) => requiredSkills.includes(s)).length * 100) / requiredSkills.length);
+
+    res.json({
+      studentId: id,
+      targetRole,
+      requiredSkills,
+      ownedSkills,
+      missingSkills,
+      currentReadiness,
+      shortestBridgeLength: missingSkills.length,
+      bridgeItems
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get("/analysis/student/:id/counterfactual", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+  const addedSkills = uniqueStrings(
+    String(req.query.addSkills || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+
+  if (!addedSkills.length) {
+    return res.status(400).json({ error: "addSkills query param required (comma-separated)" });
+  }
+
+  try {
+    const baseResult = await session.run(
+      `
+      MATCH (s:Student {id:$id})-[:ASPIRES_TO]->(r:CareerRole)
+      MATCH (r)-[:REQUIRES_SKILL]->(req:Skill)
+      OPTIONAL MATCH (s)-[:HAS_SKILL]->(owned:Skill)
+      RETURN
+        r.name AS targetRole,
+        collect(DISTINCT req.name) AS requiredSkills,
+        collect(DISTINCT owned.name) AS ownedSkills
+      `,
+      { id }
+    );
+
+    if (!baseResult.records.length) {
+      return res.status(404).json({ error: "Student or target role not found" });
+    }
+
+    const base = baseResult.records[0];
+    const targetRole = base.get("targetRole");
+    const requiredSkills = uniqueStrings(base.get("requiredSkills"));
+    const currentOwnedSkills = uniqueStrings(base.get("ownedSkills"));
+    const projectedOwnedSkills = uniqueStrings([...currentOwnedSkills, ...addedSkills]);
+
+    const calcReadiness = (owned) =>
+      requiredSkills.length === 0
+        ? 0
+        : Math.round((owned.filter((s) => requiredSkills.includes(s)).length * 100) / requiredSkills.length);
+
+    const currentReadiness = calcReadiness(currentOwnedSkills);
+    const projectedReadiness = calcReadiness(projectedOwnedSkills);
+
+    const projectRows = await session.run(
+      `
+      MATCH (s:Student {id:$id})
+      MATCH (p:Project)
+      WHERE NOT (s)-[:WORKED_ON]->(p)
+      OPTIONAL MATCH (p)-[:USES|BUILDS_SKILL]->(sk:Skill)
+      RETURN p.title AS title, p.domain AS domain, collect(DISTINCT sk.name) AS projectSkills
+      `,
+      { id }
+    );
+
+    const mentorRows = await session.run(
+      `
+      MATCH (f:Faculty)
+      OPTIONAL MATCH (f)-[:SPECIALIZED_IN]->(sk:Skill)
+      RETURN
+        f.name AS mentor,
+        f.designation AS designation,
+        f.department AS department,
+        collect(DISTINCT sk.name) AS mentorSkills
+      `,
+      {}
+    );
+
+    const projectUplifts = projectRows.records
+      .map((r) => {
+        const title = r.get("title");
+        const domain = r.get("domain");
+        const projectSkills = uniqueStrings(r.get("projectSkills"));
+        const currentMatches = projectSkills.filter((s) => currentOwnedSkills.includes(s));
+        const projectedMatches = projectSkills.filter((s) => projectedOwnedSkills.includes(s));
+        const unlockedBy = projectedMatches.filter((s) => !currentMatches.includes(s) && addedSkills.includes(s));
+        return {
+          title,
+          domain,
+          unlockDelta: projectedMatches.length - currentMatches.length,
+          unlockedBy,
+          evidencePath: unlockedBy.map((s) => `Student -> (add ${s}) -> Project:${title}`)
+        };
+      })
+      .filter((p) => p.unlockDelta > 0)
+      .sort((a, b) => b.unlockDelta - a.unlockDelta)
+      .slice(0, 5);
+
+    const mentorUplifts = mentorRows.records
+      .map((r) => {
+        const mentor = r.get("mentor");
+        const designation = r.get("designation");
+        const department = r.get("department");
+        const mentorSkills = uniqueStrings(r.get("mentorSkills"));
+        const currentMatches = mentorSkills.filter((s) => currentOwnedSkills.includes(s));
+        const projectedMatches = mentorSkills.filter((s) => projectedOwnedSkills.includes(s));
+        const unlockedBy = projectedMatches.filter((s) => !currentMatches.includes(s) && addedSkills.includes(s));
+        return {
+          mentor,
+          designation,
+          department,
+          unlockDelta: projectedMatches.length - currentMatches.length,
+          unlockedBy,
+          evidencePath: unlockedBy.map((s) => `Student -> (add ${s}) -> Faculty:${mentor}`)
+        };
+      })
+      .filter((m) => m.unlockDelta > 0)
+      .sort((a, b) => b.unlockDelta - a.unlockDelta)
+      .slice(0, 5);
+
+    res.json({
+      studentId: id,
+      targetRole,
+      addedSkills,
+      currentReadiness,
+      projectedReadiness,
+      readinessDelta: projectedReadiness - currentReadiness,
+      unlockedProjects: projectUplifts,
+      unlockedMentors: mentorUplifts
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
