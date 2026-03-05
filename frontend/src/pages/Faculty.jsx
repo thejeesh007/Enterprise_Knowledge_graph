@@ -15,7 +15,7 @@ function Faculty() {
     page: {
       minHeight: "100vh",
       padding: "34px 24px 56px",
-      background: "linear-gradient(180deg, #f8fafc 0%, #ecfeff 100%)",
+      background: "var(--bg-main)",
       fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif"
     },
     shell: {
@@ -25,21 +25,21 @@ function Faculty() {
     hero: {
       padding: "24px",
       borderRadius: "18px",
-      border: "1px solid #bae6fd",
-      background: "linear-gradient(140deg, #ffffff 0%, #f0f9ff 60%, #ecfeff 100%)",
-      boxShadow: "0 16px 30px rgba(15, 23, 42, 0.08)",
+      border: "1px solid var(--border-color)",
+      background: "var(--card-bg)",
+      boxShadow: "var(--shadow-soft)",
       marginBottom: "24px"
     },
     title: {
       margin: 0,
       fontSize: "34px",
-      color: "#0f172a",
+      color: "var(--text-primary)",
       fontWeight: 800,
       letterSpacing: "-0.02em"
     },
     subtitle: {
       margin: "8px 0 0",
-      color: "#475569",
+      color: "var(--text-muted)",
       fontSize: "15px"
     },
     statRow: {
@@ -52,9 +52,9 @@ function Faculty() {
       display: "inline-flex",
       alignItems: "center",
       borderRadius: "999px",
-      border: "1px solid #7dd3fc",
-      background: "#e0f2fe",
-      color: "#0c4a6e",
+      border: "1px solid var(--border-color)",
+      background: "var(--accent-soft)",
+      color: "var(--text-primary)",
       padding: "7px 12px",
       fontSize: "13px",
       fontWeight: 700

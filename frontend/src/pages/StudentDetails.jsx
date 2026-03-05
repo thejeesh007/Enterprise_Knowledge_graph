@@ -108,7 +108,7 @@ function StudentDetails() {
   };
 
   if (!student) {
-    return <div style={{ padding: "40px", color: "#334155" }}>Loading...</div>;
+    return <div style={{ padding: "40px", color: "var(--text-muted)" }}>Loading...</div>;
   }
 
   const scoreColor = (value) => {
@@ -122,16 +122,16 @@ function StudentDetails() {
       maxWidth: "1100px",
       margin: "0 auto",
       padding: "28px 24px 56px",
-      color: "#0f172a",
+      color: "var(--text-primary)",
       fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
-      background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)"
+      background: "var(--bg-main)"
     },
     hero: {
-      background: "linear-gradient(125deg, #eff6ff 0%, #eef2ff 55%, #f8fafc 100%)",
-      border: "1px solid #dbeafe",
+      background: "var(--card-bg)",
+      border: "1px solid var(--border-color)",
       borderRadius: "18px",
       padding: "26px",
-      boxShadow: "0 16px 30px rgba(15, 23, 42, 0.08)",
+      boxShadow: "var(--shadow-soft)",
       marginBottom: "24px"
     },
     heroTop: {
@@ -142,9 +142,9 @@ function StudentDetails() {
       flexWrap: "wrap"
     },
     name: { fontSize: "34px", fontWeight: 800, lineHeight: 1.2 },
-    subtitle: { marginTop: "8px", color: "#475569", fontSize: "15px" },
+    subtitle: { marginTop: "8px", color: "var(--text-muted)", fontSize: "15px" },
     gpa: {
-      background: "#1d4ed8",
+      background: "var(--accent-primary)",
       color: "#fff",
       borderRadius: "999px",
       padding: "10px 18px",
@@ -155,7 +155,7 @@ function StudentDetails() {
     },
     contact: {
       marginTop: "14px",
-      color: "#334155",
+      color: "var(--text-muted)",
       fontSize: "14px",
       display: "flex",
       gap: "12px",
@@ -164,8 +164,8 @@ function StudentDetails() {
     readinessWrap: {
       marginTop: "16px",
       maxWidth: "460px",
-      background: "#ffffffc2",
-      border: "1px solid #cbd5e1",
+      background: "var(--card-alt-bg)",
+      border: "1px solid var(--border-color)",
       borderRadius: "12px",
       padding: "12px 14px"
     },
@@ -173,7 +173,7 @@ function StudentDetails() {
     barTrack: {
       marginTop: "8px",
       height: "12px",
-      background: "#e2e8f0",
+      background: "var(--border-color)",
       borderRadius: "999px",
       overflow: "hidden"
     },
@@ -182,21 +182,21 @@ function StudentDetails() {
       marginBottom: "12px",
       fontSize: "22px",
       fontWeight: 750,
-      color: "#0f172a"
+      color: "var(--text-primary)"
     },
     card: {
-      border: "1px solid #e2e8f0",
+      border: "1px solid var(--border-color)",
       borderRadius: "14px",
-      background: "#fff",
+      background: "var(--card-bg)",
       padding: "16px",
-      boxShadow: "0 8px 20px rgba(15, 23, 42, 0.06)"
+      boxShadow: "var(--shadow-soft)"
     },
     grid: {
       display: "grid",
       gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
       gap: "14px"
     },
-    muted: { color: "#64748b", fontSize: "14px" },
+    muted: { color: "var(--text-muted)", fontSize: "14px" },
     badge: {
       display: "inline-flex",
       alignItems: "center",
@@ -204,9 +204,9 @@ function StudentDetails() {
       marginBottom: "8px",
       padding: "7px 12px",
       borderRadius: "999px",
-      border: "1px solid #dbeafe",
-      background: "#eff6ff",
-      color: "#1e3a8a",
+      border: "1px solid var(--border-color)",
+      background: "var(--accent-soft)",
+      color: "var(--text-primary)",
       fontSize: "13px",
       fontWeight: 600
     },
@@ -216,9 +216,9 @@ function StudentDetails() {
       marginBottom: "8px",
       padding: "7px 12px",
       borderRadius: "999px",
-      border: "1px solid #fecaca",
-      background: "#fef2f2",
-      color: "#991b1b",
+      border: "1px solid var(--border-color)",
+      background: "var(--card-alt-bg)",
+      color: "var(--text-primary)",
       fontSize: "13px",
       fontWeight: 600
     },
@@ -226,7 +226,7 @@ function StudentDetails() {
       width: "100%",
       padding: "12px",
       borderRadius: "10px",
-      border: "1px solid #cbd5e1",
+      border: "1px solid var(--border-color)",
       fontSize: "14px",
       outline: "none",
       boxSizing: "border-box"
@@ -236,7 +236,7 @@ function StudentDetails() {
       padding: "10px 16px",
       borderRadius: "10px",
       border: "none",
-      background: "#2563eb",
+      background: "var(--accent-primary)",
       color: "#fff",
       cursor: "pointer",
       fontWeight: 600
@@ -244,7 +244,7 @@ function StudentDetails() {
     select: {
       padding: "10px 12px",
       borderRadius: "10px",
-      border: "1px solid #cbd5e1",
+      border: "1px solid var(--border-color)",
       marginRight: "8px",
       minWidth: "220px"
     },

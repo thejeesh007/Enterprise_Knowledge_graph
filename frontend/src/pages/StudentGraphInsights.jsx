@@ -2,10 +2,12 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import ForceGraph2D from "react-force-graph-2d";
 import api from "../services/api";
+import { useTheme } from "../context/ThemeContext";
 
 function StudentGraphInsights() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isDark } = useTheme();
 
   const [student, setStudent] = useState(null);
   const [recommendedProjects, setRecommendedProjects] = useState([]);
@@ -92,25 +94,59 @@ function StudentGraphInsights() {
     }
   };
 
+  const dark = isDark;
+  const palette = dark
+    ? {
+        pageBg: "linear-gradient(180deg, #0b1220 0%, #111827 100%)",
+        text: "#e5e7eb",
+        cardBg: "#111827",
+        cardBorder: "#1f2937",
+        muted: "#94a3b8",
+        buttonBg: "#1e293b",
+        buttonBorder: "#334155",
+        buttonText: "#bfdbfe",
+        chipSelectedBg: "#1e3a8a",
+        chipSelectedBorder: "#3b82f6",
+        graphBorder: "#334155",
+        labelBg: "rgba(15, 23, 42, 0.9)",
+        labelText: "#e5e7eb"
+      }
+    : {
+        pageBg: "linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)",
+        text: "#0f172a",
+        cardBg: "#ffffff",
+        cardBorder: "#e2e8f0",
+        muted: "#64748b",
+        buttonBg: "#eff6ff",
+        buttonBorder: "#bfdbfe",
+        buttonText: "#1e3a8a",
+        chipSelectedBg: "#dbeafe",
+        chipSelectedBorder: "#60a5fa",
+        graphBorder: "#e2e8f0",
+        labelBg: "rgba(255,255,255,0.88)",
+        labelText: "#111827"
+      };
+
   const styles = {
     page: {
       maxWidth: "1150px",
       margin: "0 auto",
       padding: "28px 24px 56px",
       fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
-      color: "#0f172a",
-      background: "linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)"
+      color: palette.text,
+      background: palette.pageBg,
+      minHeight: "100vh"
     },
     card: {
-      border: "1px solid #e2e8f0",
+      border: `1px solid ${palette.cardBorder}`,
       borderRadius: "14px",
-      background: "#fff",
+      background: palette.cardBg,
       padding: "16px",
       boxShadow: "0 8px 20px rgba(15, 23, 42, 0.06)",
       marginTop: "16px"
     },
     title: { fontSize: "28px", fontWeight: 800, margin: 0 },
-    muted: { color: "#64748b", fontSize: "14px" },
+    muted: { color: palette.muted, fontSize: "14px" },
     sectionTitle: { fontSize: "22px", fontWeight: 750, marginBottom: "10px" },
     grid: {
       display: "grid",
@@ -120,9 +156,9 @@ function StudentGraphInsights() {
     button: {
       padding: "8px 12px",
       borderRadius: "8px",
-      border: "1px solid #bfdbfe",
-      background: "#eff6ff",
-      color: "#1e3a8a",
+      border: `1px solid ${palette.buttonBorder}`,
+      background: palette.buttonBg,
+      color: palette.buttonText,
       fontSize: "12px",
       fontWeight: 700,
       cursor: "pointer"
@@ -130,7 +166,7 @@ function StudentGraphInsights() {
     graphWrap: {
       width: "100%",
       height: "380px",
-      border: "1px solid #e2e8f0",
+      border: `1px solid ${palette.graphBorder}`,
       borderRadius: "10px",
       overflow: "hidden",
       marginTop: "10px"
@@ -147,7 +183,9 @@ function StudentGraphInsights() {
             <h1 style={styles.title}>Graph Insights Lab</h1>
             <p style={styles.muted}>Student: {student.name} | ID: {student.id}</p>
           </div>
-          <button style={styles.button} onClick={() => navigate(`/students/${id}`)}>Back to Student Details</button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button style={styles.button} onClick={() => navigate(`/students/${id}`)}>Back to Student Details</button>
+          </div>
         </div>
       </div>
 
@@ -155,7 +193,7 @@ function StudentGraphInsights() {
         <div style={styles.sectionTitle}>Recommendation Reason Graphs</div>
         <div style={styles.grid}>
           {recommendedProjects.map((p, i) => (
-            <div key={`p-${i}`} style={{ border: "1px solid #e2e8f0", borderRadius: "10px", padding: "12px" }}>
+            <div key={`p-${i}`} style={{ border: `1px solid ${palette.cardBorder}`, borderRadius: "10px", padding: "12px" }}>
               <div style={{ fontWeight: 700 }}>{p.title}</div>
               <div style={styles.muted}>Project | {p.domain}</div>
               <button style={{ ...styles.button, marginTop: "8px" }} onClick={() => openReasonGraph("project", p.title, p.title, p.evidencePaths || [])}>
@@ -164,7 +202,7 @@ function StudentGraphInsights() {
             </div>
           ))}
           {recommendedMentors.map((m, i) => (
-            <div key={`m-${i}`} style={{ border: "1px solid #e2e8f0", borderRadius: "10px", padding: "12px" }}>
+            <div key={`m-${i}`} style={{ border: `1px solid ${palette.cardBorder}`, borderRadius: "10px", padding: "12px" }}>
               <div style={{ fontWeight: 700 }}>{m.mentor}</div>
               <div style={styles.muted}>Mentor | {m.department}</div>
               <button style={{ ...styles.button, marginTop: "8px" }} onClick={() => openReasonGraph("mentor", m.mentor, m.mentor, m.evidencePaths || [])}>
@@ -173,7 +211,7 @@ function StudentGraphInsights() {
             </div>
           ))}
           {researchMentors.map((m, i) => (
-            <div key={`r-${i}`} style={{ border: "1px solid #e2e8f0", borderRadius: "10px", padding: "12px" }}>
+            <div key={`r-${i}`} style={{ border: `1px solid ${palette.cardBorder}`, borderRadius: "10px", padding: "12px" }}>
               <div style={{ fontWeight: 700 }}>{m.faculty}</div>
               <div style={styles.muted}>Research Mentor | {m.department}</div>
               <button
@@ -240,12 +278,12 @@ function StudentGraphInsights() {
                   const bckgWidth = textWidth + labelPadding * 4;
                   const labelY = node.y + radius + bckgHeight / 2 + 2 / globalScale;
 
-                  ctx.fillStyle = "rgba(255,255,255,0.85)";
+                  ctx.fillStyle = palette.labelBg;
                   ctx.fillRect(node.x - bckgWidth / 2, labelY - bckgHeight / 2, bckgWidth, bckgHeight);
 
                   ctx.textAlign = "center";
                   ctx.textBaseline = "middle";
-                  ctx.fillStyle = "#111827";
+                  ctx.fillStyle = palette.labelText;
                   ctx.fillText(label, node.x, labelY);
                 }}
               />
@@ -267,7 +305,7 @@ function StudentGraphInsights() {
             </p>
             <div style={styles.grid}>
               {(bridgeData.bridgeItems || []).map((item, i) => (
-                <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px" }}>
+                <div key={i} style={{ border: `1px solid ${palette.cardBorder}`, borderRadius: "10px", padding: "10px" }}>
                   <div style={{ fontWeight: 700 }}>{item.skill}</div>
                   <div style={styles.muted}>Projects: {(item.viaProjects || []).join(", ") || "None"}</div>
                   <div style={styles.muted}>Courses: {(item.viaCourses || []).join(", ") || "None"}</div>
@@ -287,8 +325,8 @@ function StudentGraphInsights() {
               key={i}
               style={{
                 ...styles.button,
-                background: counterfactualSkills.includes(s) ? "#dbeafe" : "#eff6ff",
-                borderColor: counterfactualSkills.includes(s) ? "#60a5fa" : "#bfdbfe"
+                background: counterfactualSkills.includes(s) ? palette.chipSelectedBg : palette.buttonBg,
+                borderColor: counterfactualSkills.includes(s) ? palette.chipSelectedBorder : palette.buttonBorder
               }}
               onClick={() => toggleCounterfactualSkill(s)}
             >
@@ -305,7 +343,7 @@ function StudentGraphInsights() {
         </button>
 
         {counterfactualData && (
-          <div style={{ marginTop: "10px", border: "1px solid #dbeafe", borderRadius: "10px", padding: "10px", background: "#f8fbff" }}>
+          <div style={{ marginTop: "10px", border: `1px solid ${palette.cardBorder}`, borderRadius: "10px", padding: "10px", background: palette.cardBg }}>
             <div style={{ fontWeight: 700 }}>
               Readiness: {counterfactualData.currentReadiness}% -> {counterfactualData.projectedReadiness}% (+{counterfactualData.readinessDelta}%)
             </div>

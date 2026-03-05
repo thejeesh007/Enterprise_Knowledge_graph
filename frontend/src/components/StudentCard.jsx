@@ -4,11 +4,11 @@ function StudentCard({ student, onClick }) {
   const card = {
     padding: "22px",
     borderRadius: "14px",
-    border: "1px solid #e0e0e0",
-    backgroundColor: "#ffffff",
-    boxShadow: "0 6px 14px rgba(0,0,0,0.08)",
+    border: "1px solid var(--border-color)",
+    backgroundColor: "var(--card-bg)",
+    boxShadow: "var(--shadow-soft)",
     cursor: "pointer",
-    transition: "transform 0.2s ease",
+    transition: "transform 0.2s ease, box-shadow 0.2s ease",
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between"
@@ -26,7 +26,7 @@ function StudentCard({ student, onClick }) {
 
   const subText = {
     fontSize: "14px",
-    color: "#555"
+    color: "var(--text-muted)"
   };
 
   const chipRow = {
@@ -39,15 +39,16 @@ function StudentCard({ student, onClick }) {
   const chip = {
     padding: "6px 12px",
     borderRadius: "20px",
-    backgroundColor: "#f1f4ff",
+    backgroundColor: "var(--accent-soft)",
     fontSize: "13px",
-    fontWeight: "500"
+    fontWeight: "600",
+    color: "var(--text-primary)"
   };
 
   const gpaBadge = {
     padding: "6px 14px",
     borderRadius: "20px",
-    backgroundColor: "#2f5fff",
+    backgroundColor: "var(--accent-primary)",
     color: "#fff",
     fontSize: "13px",
     fontWeight: "700"

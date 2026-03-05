@@ -17,23 +17,23 @@ function FacultyDetails() {
     api.get(`/faculty/${id}/publications`).then((res) => setPublications(res.data));
   }, [id]);
 
-  if (!faculty) return <div style={{ padding: "40px", color: "#334155" }}>Loading...</div>;
+  if (!faculty) return <div style={{ padding: "40px", color: "var(--text-muted)" }}>Loading...</div>;
 
   const styles = {
     page: {
       maxWidth: "1100px",
       margin: "0 auto",
       padding: "28px 24px 56px",
-      background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)",
+      background: "var(--bg-main)",
       fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
-      color: "#0f172a"
+      color: "var(--text-primary)"
     },
     hero: {
       borderRadius: "18px",
-      border: "1px solid #bae6fd",
+      border: "1px solid var(--border-color)",
       padding: "26px",
-      background: "linear-gradient(130deg, #ffffff 0%, #f0f9ff 60%, #ecfeff 100%)",
-      boxShadow: "0 16px 30px rgba(15, 23, 42, 0.08)",
+      background: "var(--card-bg)",
+      boxShadow: "var(--shadow-soft)",
       marginBottom: "24px"
     },
     heroTop: {
@@ -51,12 +51,12 @@ function FacultyDetails() {
     subtitle: {
       marginTop: "6px",
       fontSize: "15px",
-      color: "#475569"
+      color: "var(--text-muted)"
     },
     chip: {
       borderRadius: "999px",
       padding: "10px 16px",
-      background: "#0ea5e9",
+      background: "var(--accent-primary)",
       color: "#fff",
       fontWeight: 700,
       fontSize: "15px"
@@ -68,9 +68,9 @@ function FacultyDetails() {
       gap: "10px"
     },
     infoPill: {
-      border: "1px solid #bae6fd",
-      background: "#f0f9ff",
-      color: "#0c4a6e",
+      border: "1px solid var(--border-color)",
+      background: "var(--accent-soft)",
+      color: "var(--text-primary)",
       borderRadius: "999px",
       padding: "7px 12px",
       fontSize: "13px",
@@ -90,14 +90,14 @@ function FacultyDetails() {
       gap: "14px"
     },
     card: {
-      border: "1px solid #e2e8f0",
+      border: "1px solid var(--border-color)",
       borderRadius: "14px",
-      background: "#fff",
-      boxShadow: "0 10px 22px rgba(15, 23, 42, 0.06)",
+      background: "var(--card-bg)",
+      boxShadow: "var(--shadow-soft)",
       padding: "14px"
     },
     muted: {
-      color: "#64748b",
+      color: "var(--text-muted)",
       fontSize: "14px"
     }
   };

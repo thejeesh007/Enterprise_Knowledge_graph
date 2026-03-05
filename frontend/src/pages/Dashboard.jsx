@@ -8,20 +8,20 @@ function Dashboard() {
     page: {
       minHeight: "100vh",
       padding: "38px 28px 56px",
-      background: "radial-gradient(circle at 0% 0%, #dbeafe 0%, #eff6ff 30%, #f8fafc 70%)",
+      background: "var(--bg-main)",
       fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
-      color: "#0f172a"
+      color: "var(--text-primary)"
     },
     shell: {
       maxWidth: "1100px",
       margin: "0 auto"
     },
     hero: {
-      border: "1px solid #bfdbfe",
+      border: "1px solid var(--border-color)",
       borderRadius: "20px",
       padding: "28px",
-      background: "linear-gradient(140deg, #ffffff 0%, #eff6ff 55%, #e0f2fe 100%)",
-      boxShadow: "0 20px 40px rgba(15, 23, 42, 0.08)"
+      background: "var(--card-bg)",
+      boxShadow: "var(--shadow-soft)"
     },
     title: {
       fontSize: "42px",
@@ -35,7 +35,7 @@ function Dashboard() {
     subtitle: {
       fontSize: "17px",
       lineHeight: 1.65,
-      color: "#334155",
+      color: "var(--text-muted)",
       maxWidth: "760px"
     },
     statRow: {
@@ -47,9 +47,9 @@ function Dashboard() {
     stat: {
       padding: "10px 14px",
       borderRadius: "999px",
-      background: "#eff6ff",
-      border: "1px solid #bfdbfe",
-      color: "#1e3a8a",
+      background: "var(--accent-soft)",
+      border: "1px solid var(--border-color)",
+      color: "var(--text-primary)",
       fontSize: "13px",
       fontWeight: 700
     },
@@ -65,12 +65,12 @@ function Dashboard() {
       gap: "16px"
     },
     card: {
-      border: "1px solid #e2e8f0",
+      border: "1px solid var(--border-color)",
       borderRadius: "16px",
       padding: "24px",
-      background: "#ffffff",
+      background: "var(--card-bg)",
       cursor: "pointer",
-      boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
+      boxShadow: "var(--shadow-soft)",
       transition: "transform 0.25s ease, box-shadow 0.25s ease"
     },
     cardIcon: {
@@ -81,7 +81,8 @@ function Dashboard() {
       placeItems: "center",
       marginBottom: "14px",
       fontSize: "22px",
-      background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)"
+      background: "var(--accent-soft)",
+      color: "var(--text-primary)"
     },
     cardTitle: {
       fontSize: "22px",
@@ -91,7 +92,7 @@ function Dashboard() {
     cardDesc: {
       fontSize: "14px",
       lineHeight: 1.6,
-      color: "#475569"
+      color: "var(--text-muted)"
     }
   };
 

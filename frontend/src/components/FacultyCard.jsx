@@ -4,11 +4,11 @@ function FacultyCard({ faculty, onClick }) {
   const card = {
     padding: "22px",
     borderRadius: "14px",
-    border: "1px solid #e0e0e0",
-    backgroundColor: "#ffffff",
-    boxShadow: "0 6px 14px rgba(0,0,0,0.08)",
+    border: "1px solid var(--border-color)",
+    backgroundColor: "var(--card-bg)",
+    boxShadow: "var(--shadow-soft)",
     cursor: "pointer",
-    transition: "transform 0.2s ease"
+    transition: "transform 0.2s ease, box-shadow 0.2s ease"
   };
 
   const name = {
@@ -19,7 +19,7 @@ function FacultyCard({ faculty, onClick }) {
 
   const sub = {
     fontSize: "14px",
-    color: "#555"
+    color: "var(--text-muted)"
   };
 
   const row = {
@@ -32,15 +32,16 @@ function FacultyCard({ faculty, onClick }) {
   const chip = {
     padding: "6px 12px",
     borderRadius: "20px",
-    backgroundColor: "#eef2ff",
+    backgroundColor: "var(--accent-soft)",
     fontSize: "13px",
-    fontWeight: "500"
+    fontWeight: "600",
+    color: "var(--text-primary)"
   };
 
   const badge = {
     padding: "6px 14px",
     borderRadius: "20px",
-    backgroundColor: "#2f5fff",
+    backgroundColor: "var(--accent-primary)",
     color: "white",
     fontSize: "13px",
     fontWeight: "700"

@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import api from "../services/api";
+import { useTheme } from "../context/ThemeContext";
 
 function GraphView() {
+  const { isDark } = useTheme();
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
 
@@ -21,15 +23,31 @@ function GraphView() {
   }, []);
 
   if (loading) {
-    return <div style={{ padding: 40 }}>Loading graph...</div>;
+    return <div style={{ padding: 40, color: "var(--text-muted)" }}>Loading graph...</div>;
   }
 
   if (!graphData.nodes.length) {
-    return <div style={{ padding: 40 }}>No graph data available</div>;
+    return <div style={{ padding: 40, color: "var(--text-muted)" }}>No graph data available</div>;
   }
 
   return (
-    <div style={{ width: "100%", height: "90vh" }}>
+    <div
+      style={{
+        width: "100%",
+        height: "90vh",
+        padding: "16px 18px",
+        background: "var(--bg-main)"
+      }}
+    >
+      <div
+        style={{
+          border: "1px solid var(--border-color)",
+          borderRadius: "14px",
+          overflow: "hidden",
+          height: "100%",
+          background: "var(--card-bg)"
+        }}
+      >
       <ForceGraph2D
         graphData={graphData}
         nodeLabel={node =>
@@ -44,12 +62,13 @@ function GraphView() {
           const fontSize = 12 / globalScale;
 
           ctx.font = `${fontSize}px Sans-Serif`;
-          ctx.fillStyle = "black";
+          ctx.fillStyle = isDark ? "#e5e7eb" : "#111827";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillText(label, node.x, node.y);
         }}
       />
+      </div>
     </div>
   );
 }
