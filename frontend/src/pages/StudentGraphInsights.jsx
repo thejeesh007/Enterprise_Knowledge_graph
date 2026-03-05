@@ -23,6 +23,8 @@ function StudentGraphInsights() {
   const [counterfactualSkills, setCounterfactualSkills] = useState([]);
   const [counterfactualData, setCounterfactualData] = useState(null);
   const [runningCounterfactual, setRunningCounterfactual] = useState(false);
+  const [learningPathData, setLearningPathData] = useState(null);
+  const [learningPathLoading, setLearningPathLoading] = useState(false);
 
   useEffect(() => {
     api.get("/students").then((res) => {
@@ -54,7 +56,23 @@ function StudentGraphInsights() {
       .get(`/analysis/student/${id}/bridge-to-role`)
       .then((res) => setBridgeData(res.data))
       .catch(() => setBridgeData(null));
+
+    loadLearningPath();
   }, [id]);
+
+  const loadLearningPath = async (role = "") => {
+    try {
+      setLearningPathLoading(true);
+      const res = await api.get(`/analysis/student/${id}/learning-path`, {
+        params: role ? { role } : {}
+      });
+      setLearningPathData(res.data);
+    } catch (err) {
+      setLearningPathData(null);
+    } finally {
+      setLearningPathLoading(false);
+    }
+  };
 
   const openReasonGraph = async (type, target, label, evidencePaths = []) => {
     try {
@@ -309,10 +327,75 @@ function StudentGraphInsights() {
                   <div style={{ fontWeight: 700 }}>{item.skill}</div>
                   <div style={styles.muted}>Projects: {(item.viaProjects || []).join(", ") || "None"}</div>
                   <div style={styles.muted}>Courses: {(item.viaCourses || []).join(", ") || "None"}</div>
+                  <div style={styles.muted}>Related Skills: {(item.relatedSkills || []).join(", ") || "None"}</div>
                 </div>
               ))}
             </div>
           </>
+        )}
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.sectionTitle}>Explainable Learning Path Finder</div>
+        <p style={styles.muted}>
+          Ranked plans generated from graph paths: missing skills -> courses/projects -> target role.
+        </p>
+        <button
+          style={{ ...styles.button, marginBottom: "8px" }}
+          onClick={() => loadLearningPath(bridgeData?.targetRole || student?.career_goal || "")}
+          disabled={learningPathLoading}
+        >
+          {learningPathLoading ? "Generating..." : "Generate Ranked Plans"}
+        </button>
+
+        {!learningPathData ? (
+          <div style={styles.muted}>No learning path generated yet.</div>
+        ) : (learningPathData.plans || []).length === 0 ? (
+          <div style={styles.muted}>No missing skills for this role. You are already on track.</div>
+        ) : (
+          <div style={{ display: "grid", gap: "10px" }}>
+            {(learningPathData.plans || []).map((plan, i) => (
+              <div
+                key={plan.id || i}
+                style={{
+                  border: `1px solid ${palette.cardBorder}`,
+                  borderRadius: "10px",
+                  padding: "12px",
+                  background: palette.cardBg
+                }}
+              >
+                <div style={{ fontWeight: 800 }}>
+                  #{i + 1} {plan.name} | Score: {plan.score}
+                </div>
+                <div style={styles.muted}>
+                  ETA: {plan.estimatedWeeks} weeks | Skill Coverage: {plan.skillCoverage}%
+                </div>
+                <div style={styles.muted}>Objective: {plan.objective}</div>
+                <div style={{ ...styles.muted, marginTop: "6px" }}>
+                  Skills Covered: {(plan.skillsCovered || []).join(", ") || "None"}
+                </div>
+                <div style={styles.muted}>
+                  Courses: {(plan.recommendedCourses || []).join(", ") || "None"}
+                </div>
+                <div style={styles.muted}>
+                  Projects: {(plan.recommendedProjects || []).join(", ") || "None"}
+                </div>
+                <div style={{ ...styles.muted, marginTop: "6px" }}>
+                  Why this plan: {plan.explanation}
+                </div>
+                {(plan.evidencePaths || []).length > 0 && (
+                  <div style={{ marginTop: "6px" }}>
+                    <div style={{ fontWeight: 700, fontSize: "13px" }}>Graph Evidence</div>
+                    {(plan.evidencePaths || []).slice(0, 4).map((ev, idx) => (
+                      <div key={idx} style={styles.muted}>
+                        {ev.summary}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -348,9 +431,55 @@ function StudentGraphInsights() {
               Readiness: {counterfactualData.currentReadiness}% -> {counterfactualData.projectedReadiness}% (+{counterfactualData.readinessDelta}%)
             </div>
             <div style={styles.muted}>Added Skills: {counterfactualData.addedSkills.join(", ")}</div>
+            <div style={{ ...styles.muted, marginTop: "6px" }}>
+              Newly Covered Role Skills: {(counterfactualData.newlyCoveredRoleSkills || []).join(", ") || "None"}
+            </div>
+            <div style={styles.muted}>
+              Remaining Missing Skills: {(counterfactualData.remainingMissingSkills || []).join(", ") || "None"}
+            </div>
+
+            <div style={{ marginTop: "10px", fontWeight: 700 }}>Unlocked Project Paths</div>
+            {(counterfactualData.unlockedProjects || []).length > 0 ? (
+              <div style={{ marginTop: "6px" }}>
+                {counterfactualData.unlockedProjects.map((p, i) => (
+                  <div key={`up-${i}`} style={styles.muted}>
+                    {p.title} ({p.domain || "General"}) | +{p.unlockDelta} graph matches via {(p.unlockedBy || []).join(", ")}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.muted}>No additional project paths unlocked.</div>
+            )}
+
+            <div style={{ marginTop: "10px", fontWeight: 700 }}>Unlocked Course Paths</div>
+            {(counterfactualData.unlockedCourses || []).length > 0 ? (
+              <div style={{ marginTop: "6px" }}>
+                {counterfactualData.unlockedCourses.map((c, i) => (
+                  <div key={`uc-${i}`} style={styles.muted}>
+                    {c.course} {c.code ? `(${c.code})` : ""} | +{c.unlockDelta} graph matches via {(c.unlockedBy || []).join(", ")}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.muted}>No additional course paths unlocked.</div>
+            )}
+
+            <div style={{ marginTop: "10px", fontWeight: 700 }}>Unlocked Mentor Paths</div>
+            {(counterfactualData.unlockedMentors || []).length > 0 ? (
+              <div style={{ marginTop: "6px" }}>
+                {counterfactualData.unlockedMentors.map((m, i) => (
+                  <div key={`um-${i}`} style={styles.muted}>
+                    {m.mentor} ({m.department || "Department N/A"}) | +{m.unlockDelta} graph matches via {(m.unlockedBy || []).join(", ")}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.muted}>No additional mentor paths unlocked.</div>
+            )}
           </div>
         )}
       </div>
+
     </div>
   );
 }

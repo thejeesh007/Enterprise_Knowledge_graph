@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const neo4j = require("neo4j-driver");
+const crypto = require("crypto");
 const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
@@ -188,6 +189,203 @@ function uniqueStrings(list = []) {
   return [...new Set((list || []).filter(Boolean))];
 }
 
+const AUTH_SECRET = process.env.AUTH_SECRET || "ekg-dev-secret-change-me";
+const TOKEN_TTL_SECONDS = Number(process.env.AUTH_TOKEN_TTL_SECONDS || 60 * 60 * 8);
+const DEMO_USERS = [
+  { id: "u-admin", email: "admin@ekg.local", password: "Admin@123", role: "admin", profileId: null, name: "Admin" },
+  { id: "u-student-1", email: "student1@ekg.local", password: "Student@123", role: "student", profileId: 1, name: "Student One" },
+  { id: "u-faculty-1", email: "faculty1@ekg.local", password: "Faculty@123", role: "faculty", profileId: 1, name: "Faculty One" }
+];
+
+function base64UrlEncode(input) {
+  return Buffer.from(input).toString("base64url");
+}
+
+function base64UrlDecode(input) {
+  return Buffer.from(input, "base64url").toString("utf8");
+}
+
+function signAuthToken(payload) {
+  const header = { alg: "HS256", typ: "JWT" };
+  const payloadWithExp = {
+    ...payload,
+    exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS
+  };
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payloadWithExp));
+  const signature = crypto
+    .createHmac("sha256", AUTH_SECRET)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64url");
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function verifyAuthToken(token) {
+  const [encodedHeader, encodedPayload, signature] = String(token || "").split(".");
+  if (!encodedHeader || !encodedPayload || !signature) return null;
+  const expectedSig = crypto
+    .createHmac("sha256", AUTH_SECRET)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64url");
+
+  if (signature !== expectedSig) return null;
+
+  let payload = null;
+  try {
+    payload = JSON.parse(base64UrlDecode(encodedPayload));
+  } catch (err) {
+    return null;
+  }
+
+  if (!payload?.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload;
+}
+
+function canAccessStudent(user, studentId) {
+  if (!user) return false;
+  if (user.role === "admin" || user.role === "faculty") return true;
+  return user.role === "student" && Number(user.profileId) === Number(studentId);
+}
+
+function extractStudentIdFromPath(reqPath) {
+  const patterns = [
+    /^\/student\/(\d+)(\/|$)/i,
+    /^\/analysis\/student\/(\d+)(\/|$)/i,
+    /^\/recommendations\/student\/(\d+)(\/|$)/i,
+    /^\/graph\/student\/(\d+)(\/|$)/i,
+    /^\/simulation\/student\/(\d+)(\/|$)/i,
+    /^\/resume\/analyze\/(\d+)(\/|$)/i
+  ];
+  for (const p of patterns) {
+    const match = reqPath.match(p);
+    if (match?.[1]) return Number(match[1]);
+  }
+  return null;
+}
+
+function authMiddleware(req, res, next) {
+  const publicRoutes = new Set(["/", "/auth/login"]);
+  if (publicRoutes.has(req.path)) return next();
+
+  const authHeader = String(req.headers.authorization || "");
+  const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const token = tokenMatch?.[1];
+  const payload = verifyAuthToken(token);
+  if (!payload) {
+    return res.status(401).json({ error: "Unauthorized: valid bearer token required" });
+  }
+
+  req.user = {
+    id: payload.sub,
+    email: payload.email,
+    role: payload.role,
+    profileId: payload.profileId
+  };
+
+  const studentId = extractStudentIdFromPath(req.path);
+  if (studentId !== null && !canAccessStudent(req.user, studentId)) {
+    return res.status(403).json({ error: "Forbidden: you cannot access this student's data" });
+  }
+
+  next();
+}
+
+const BRIDGE_SKILL_CATALOG = {
+  Algorithms: {
+    projects: [
+      { title: "Route Optimizer", domain: "Algorithms" },
+      { title: "Dynamic Programming Toolkit", domain: "Algorithms" },
+      { title: "Graph Search Visualizer", domain: "Algorithms" }
+    ],
+    courses: [
+      { name: "Design and Analysis of Algorithms", code: "CS301" },
+      { name: "Advanced Problem Solving", code: "CS302" }
+    ]
+  },
+  Databases: {
+    projects: [
+      { title: "Student Information Warehouse", domain: "Databases" },
+      { title: "E-commerce Data Pipeline", domain: "Data Engineering" },
+      { title: "Library DBMS Portal", domain: "Databases" }
+    ],
+    courses: [
+      { name: "Database Management Systems", code: "CS220" },
+      { name: "Data Modeling and Warehousing", code: "CS320" }
+    ]
+  },
+  SQL: {
+    projects: [
+      { title: "SQL Analytics Dashboard", domain: "Data Analytics" },
+      { title: "Query Tuning Benchmark", domain: "Databases" }
+    ],
+    courses: [
+      { name: "Structured Query Language Lab", code: "CS221" },
+      { name: "Advanced SQL and Indexing", code: "CS321" }
+    ]
+  },
+  "System Design": {
+    projects: [
+      { title: "Scalable URL Shortener", domain: "System Design" },
+      { title: "Distributed Notification Service", domain: "Distributed Systems" }
+    ],
+    courses: [
+      { name: "Distributed Systems", code: "CS410" },
+      { name: "Scalable System Architecture", code: "CS411" }
+    ]
+  },
+  "Machine Learning": {
+    projects: [
+      { title: "Churn Prediction Pipeline", domain: "Machine Learning" },
+      { title: "Recommender System Prototype", domain: "Machine Learning" }
+    ],
+    courses: [
+      { name: "Introduction to Machine Learning", code: "AI201" },
+      { name: "Applied ML Engineering", code: "AI301" }
+    ]
+  }
+};
+
+async function ensureCareerBridgeCatalog() {
+  const session = driver.session();
+  try {
+    for (const [skillName, entry] of Object.entries(BRIDGE_SKILL_CATALOG)) {
+      for (const project of entry.projects || []) {
+        await session.run(
+          `
+          MERGE (sk:Skill {name:$skillName})
+          MERGE (p:Project {title:$title})
+          SET p.domain = coalesce(p.domain, $domain)
+          MERGE (p)-[:BUILDS_SKILL]->(sk)
+          `,
+          {
+            skillName,
+            title: project.title,
+            domain: project.domain || null
+          }
+        );
+      }
+
+      for (const course of entry.courses || []) {
+        await session.run(
+          `
+          MERGE (sk:Skill {name:$skillName})
+          MERGE (c:Course {code:$code})
+          SET c.name = coalesce(c.name, $name)
+          MERGE (c)-[:COVERS_SKILL]->(sk)
+          `,
+          {
+            skillName,
+            code: course.code,
+            name: course.name
+          }
+        );
+      }
+    }
+  } finally {
+    await session.close();
+  }
+}
+
 async function storeRecommendationEvidence(
   session,
   { studentId, recommendationType, target, targetLabel, relevance, evidencePaths }
@@ -221,6 +419,44 @@ async function storeRecommendationEvidence(
     }
   );
 }
+
+// ---------- Auth ----------
+app.post("/auth/login", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+  if (!email || !password) {
+    return res.status(400).json({ error: "email and password are required" });
+  }
+
+  const user = DEMO_USERS.find((u) => u.email.toLowerCase() === email && u.password === password);
+  if (!user) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const token = signAuthToken({
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+    profileId: user.profileId
+  });
+
+  res.json({
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      profileId: user.profileId,
+      name: user.name
+    }
+  });
+});
+
+app.use(authMiddleware);
+
+app.get("/auth/me", (req, res) => {
+  res.json({ user: req.user });
+});
 
 // ---------- Health Check ----------
 app.get("/", (req, res) => {
@@ -947,20 +1183,56 @@ app.get("/analysis/student/:id/bridge-to-role", async (req, res) => {
       const pathResult = await session.run(
         `
         MATCH (sk:Skill {name:$skill})
-        OPTIONAL MATCH (p:Project)-[:USES|BUILDS_SKILL]->(sk)
-        WITH sk, collect(DISTINCT p.title)[0..3] AS projectTitles
-        OPTIONAL MATCH (c:Course)-[:COVERS_SKILL|TEACHES_SKILL|BUILDS_SKILL]->(sk)
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (p:Project)-[:USES|BUILDS_SKILL]->(sk)
+          RETURN collect(DISTINCT p.title)[0..5] AS directProjects
+        }
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (c:Course)-[:COVERS_SKILL|TEACHES_SKILL|BUILDS_SKILL]->(sk)
+          RETURN collect(DISTINCT coalesce(c.name, c.code))[0..5] AS directCourses
+        }
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (p:Project)
+          WHERE toLower(coalesce(p.title, "")) CONTAINS toLower(sk.name)
+             OR toLower(coalesce(p.domain, "")) CONTAINS toLower(sk.name)
+          RETURN collect(DISTINCT p.title)[0..5] AS keywordProjects
+        }
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (c:Course)
+          WHERE toLower(coalesce(c.name, "")) CONTAINS toLower(sk.name)
+             OR toLower(coalesce(c.code, "")) CONTAINS toLower(sk.name)
+          RETURN collect(DISTINCT coalesce(c.name, c.code))[0..5] AS keywordCourses
+        }
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (sk)-[:RELATED_TO|SIMILAR_TO|PREREQUISITE_OF]-(related:Skill)
+          RETURN collect(DISTINCT related.name)[0..5] AS relatedSkills
+        }
         RETURN
           sk.name AS skill,
-          projectTitles,
-          collect(DISTINCT coalesce(c.name, c.code))[0..3] AS courseNames
+          directProjects,
+          directCourses,
+          keywordProjects,
+          keywordCourses,
+          relatedSkills
         `,
         { skill }
       );
 
       const pr = pathResult.records[0];
-      const viaProjects = uniqueStrings(pr?.get("projectTitles") || []);
-      const viaCourses = uniqueStrings(pr?.get("courseNames") || []);
+      const viaProjects = uniqueStrings([
+        ...(pr?.get("directProjects") || []),
+        ...(pr?.get("keywordProjects") || [])
+      ]).slice(0, 5);
+      const viaCourses = uniqueStrings([
+        ...(pr?.get("directCourses") || []),
+        ...(pr?.get("keywordCourses") || [])
+      ]).slice(0, 5);
+      const relatedSkills = uniqueStrings(pr?.get("relatedSkills") || []);
       const evidencePaths = [
         {
           summary: `CareerRole:${targetRole} requires ${skill}`,
@@ -973,6 +1245,10 @@ app.get("/analysis/student/:id/bridge-to-role", async (req, res) => {
         ...viaCourses.map((c) => ({
           summary: `${c} can support ${skill}`,
           path: [`Course:${c}`, `COVERS/TEACHES_SKILL -> ${skill}`, `enables path to ${targetRole}`]
+        })),
+        ...relatedSkills.map((rs) => ({
+          summary: `${rs} is graph-related to ${skill}`,
+          path: [`Skill:${rs}`, `RELATED_TO/SIMILAR_TO/PREREQUISITE_OF`, `Skill:${skill}`]
         }))
       ];
 
@@ -980,6 +1256,7 @@ app.get("/analysis/student/:id/bridge-to-role", async (req, res) => {
         skill,
         viaProjects,
         viaCourses,
+        relatedSkills,
         evidencePaths
       });
     }
@@ -998,6 +1275,229 @@ app.get("/analysis/student/:id/bridge-to-role", async (req, res) => {
       currentReadiness,
       shortestBridgeLength: missingSkills.length,
       bridgeItems
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.get("/analysis/student/:id/learning-path", async (req, res) => {
+  const session = driver.session();
+  const id = parseInt(req.params.id);
+  const roleParam = String(req.query.role || "").trim();
+
+  try {
+    const baseResult = await session.run(
+      `
+      MATCH (s:Student {id:$id})
+      OPTIONAL MATCH (s)-[:ASPIRES_TO]->(asp:CareerRole)
+      WITH s, CASE WHEN $roleParam = "" THEN asp.name ELSE $roleParam END AS selectedRole
+      MATCH (r:CareerRole {name:selectedRole})
+      MATCH (r)-[:REQUIRES_SKILL]->(req:Skill)
+      OPTIONAL MATCH (s)-[:HAS_SKILL]->(owned:Skill)
+      RETURN
+        s.name AS studentName,
+        r.name AS targetRole,
+        collect(DISTINCT req.name) AS requiredSkills,
+        collect(DISTINCT owned.name) AS ownedSkills
+      `,
+      { id, roleParam }
+    );
+
+    if (!baseResult.records.length) {
+      return res.status(404).json({ error: "Student or role not found" });
+    }
+
+    const row = baseResult.records[0];
+    const targetRole = row.get("targetRole");
+    const requiredSkills = uniqueStrings(row.get("requiredSkills"));
+    const ownedSkills = uniqueStrings(row.get("ownedSkills"));
+    const missingSkills = requiredSkills.filter((s) => !ownedSkills.includes(s));
+
+    const currentReadiness =
+      requiredSkills.length === 0
+        ? 0
+        : Math.round((ownedSkills.filter((s) => requiredSkills.includes(s)).length * 100) / requiredSkills.length);
+
+    if (!missingSkills.length) {
+      return res.json({
+        studentId: id,
+        targetRole,
+        currentReadiness,
+        requiredSkills,
+        ownedSkills,
+        missingSkills,
+        plans: []
+      });
+    }
+
+    const skillResourceMap = {};
+    for (const skill of missingSkills) {
+      const resourceResult = await session.run(
+        `
+        MATCH (sk:Skill {name:$skill})
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (c:Course)-[:COVERS_SKILL|TEACHES_SKILL|BUILDS_SKILL]->(sk)
+          RETURN collect(DISTINCT coalesce(c.name, c.code))[0..4] AS directCourses
+        }
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (p:Project)-[:USES|BUILDS_SKILL]->(sk)
+          RETURN collect(DISTINCT p.title)[0..4] AS directProjects
+        }
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (pre:Skill)-[:PREREQUISITE_OF]->(sk)
+          RETURN collect(DISTINCT pre.name)[0..4] AS prerequisites
+        }
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (c:Course)
+          WHERE toLower(coalesce(c.name, "")) CONTAINS toLower(sk.name)
+             OR toLower(coalesce(c.code, "")) CONTAINS toLower(sk.name)
+          RETURN collect(DISTINCT coalesce(c.name, c.code))[0..4] AS keywordCourses
+        }
+        CALL {
+          WITH sk
+          OPTIONAL MATCH (p:Project)
+          WHERE toLower(coalesce(p.title, "")) CONTAINS toLower(sk.name)
+             OR toLower(coalesce(p.domain, "")) CONTAINS toLower(sk.name)
+          RETURN collect(DISTINCT p.title)[0..4] AS keywordProjects
+        }
+        RETURN
+          sk.name AS skill,
+          directCourses,
+          directProjects,
+          prerequisites,
+          keywordCourses,
+          keywordProjects
+        `,
+        { skill }
+      );
+
+      const resourceRow = resourceResult.records[0];
+      const courses = uniqueStrings([
+        ...(resourceRow?.get("directCourses") || []),
+        ...(resourceRow?.get("keywordCourses") || [])
+      ]).slice(0, 4);
+      const projects = uniqueStrings([
+        ...(resourceRow?.get("directProjects") || []),
+        ...(resourceRow?.get("keywordProjects") || [])
+      ]).slice(0, 4);
+      const prerequisites = uniqueStrings(resourceRow?.get("prerequisites") || []).slice(0, 4);
+
+      skillResourceMap[skill] = { courses, projects, prerequisites };
+    }
+
+    const buildPlan = ({ id: planId, name, objective, pickCourses, pickProjects, weekPerSkill, prereqWeekFactor, scoreWeights }) => {
+      const skillsCovered = [...missingSkills];
+      const recommendedCourses = [];
+      const recommendedProjects = [];
+      const evidencePaths = [];
+      let prereqCount = 0;
+
+      skillsCovered.forEach((skill) => {
+        const resources = skillResourceMap[skill] || { courses: [], projects: [], prerequisites: [] };
+        prereqCount += resources.prerequisites.length;
+
+        const selectedCourses = resources.courses.slice(0, pickCourses);
+        const selectedProjects = resources.projects.slice(0, pickProjects);
+
+        selectedCourses.forEach((course) => {
+          if (!recommendedCourses.includes(course)) recommendedCourses.push(course);
+          evidencePaths.push({
+            summary: `${course} covers ${skill}`,
+            path: [`Course:${course}`, `COVERS/TEACHES_SKILL -> ${skill}`, `required by ${targetRole}`]
+          });
+        });
+        selectedProjects.forEach((project) => {
+          if (!recommendedProjects.includes(project)) recommendedProjects.push(project);
+          evidencePaths.push({
+            summary: `${project} builds ${skill}`,
+            path: [`Project:${project}`, `BUILDS_SKILL/USES -> ${skill}`, `required by ${targetRole}`]
+          });
+        });
+        resources.prerequisites.forEach((pre) => {
+          evidencePaths.push({
+            summary: `${pre} is a prerequisite for ${skill}`,
+            path: [`Skill:${pre}`, `PREREQUISITE_OF -> ${skill}`, `supports ${targetRole}`]
+          });
+        });
+      });
+
+      const estimatedWeeks = Math.max(
+        2,
+        Math.round(skillsCovered.length * weekPerSkill + prereqCount * prereqWeekFactor)
+      );
+      const skillCoverage = Math.round((skillsCovered.length * 100) / missingSkills.length);
+      const resourceScore = Math.min(100, recommendedCourses.length * 8 + recommendedProjects.length * 8);
+      const prereqPenalty = Math.min(100, prereqCount * 10);
+      const score = Math.round(
+        skillCoverage * scoreWeights.coverage +
+          resourceScore * scoreWeights.resources -
+          prereqPenalty * scoreWeights.prereqPenalty
+      );
+
+      return {
+        id: planId,
+        name,
+        objective,
+        score,
+        estimatedWeeks,
+        skillCoverage,
+        skillsCovered,
+        remainingSkills: [],
+        recommendedCourses: recommendedCourses.slice(0, 8),
+        recommendedProjects: recommendedProjects.slice(0, 8),
+        evidencePaths: evidencePaths.slice(0, 20),
+        explanation: `${name} prioritizes ${objective.toLowerCase()} with ${recommendedCourses.length} course and ${recommendedProjects.length} project recommendations.`
+      };
+    };
+
+    const plans = [
+      buildPlan({
+        id: "fast-track",
+        name: "Fast Track",
+        objective: "minimum time to role-readiness",
+        pickCourses: 1,
+        pickProjects: 0,
+        weekPerSkill: 1.8,
+        prereqWeekFactor: 0.35,
+        scoreWeights: { coverage: 0.7, resources: 0.25, prereqPenalty: 0.2 }
+      }),
+      buildPlan({
+        id: "balanced",
+        name: "Balanced Path",
+        objective: "balanced academic + practical growth",
+        pickCourses: 1,
+        pickProjects: 1,
+        weekPerSkill: 2.5,
+        prereqWeekFactor: 0.45,
+        scoreWeights: { coverage: 0.6, resources: 0.35, prereqPenalty: 0.15 }
+      }),
+      buildPlan({
+        id: "portfolio-first",
+        name: "Portfolio First",
+        objective: "project-heavy proof of skill",
+        pickCourses: 0,
+        pickProjects: 2,
+        weekPerSkill: 2.2,
+        prereqWeekFactor: 0.4,
+        scoreWeights: { coverage: 0.55, resources: 0.4, prereqPenalty: 0.15 }
+      })
+    ].sort((a, b) => b.score - a.score);
+
+    res.json({
+      studentId: id,
+      targetRole,
+      currentReadiness,
+      requiredSkills,
+      ownedSkills,
+      missingSkills,
+      plans
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1076,6 +1576,18 @@ app.get("/analysis/student/:id/counterfactual", async (req, res) => {
       {}
     );
 
+    const courseRows = await session.run(
+      `
+      MATCH (c:Course)
+      OPTIONAL MATCH (c)-[:COVERS_SKILL|TEACHES_SKILL|BUILDS_SKILL]->(sk:Skill)
+      RETURN
+        coalesce(c.name, c.code) AS course,
+        c.code AS code,
+        collect(DISTINCT sk.name) AS courseSkills
+      `,
+      {}
+    );
+
     const projectUplifts = projectRows.records
       .map((r) => {
         const title = r.get("title");
@@ -1093,6 +1605,26 @@ app.get("/analysis/student/:id/counterfactual", async (req, res) => {
         };
       })
       .filter((p) => p.unlockDelta > 0)
+      .sort((a, b) => b.unlockDelta - a.unlockDelta)
+      .slice(0, 5);
+
+    const courseUplifts = courseRows.records
+      .map((r) => {
+        const course = r.get("course");
+        const code = r.get("code");
+        const courseSkills = uniqueStrings(r.get("courseSkills"));
+        const currentMatches = courseSkills.filter((s) => currentOwnedSkills.includes(s));
+        const projectedMatches = courseSkills.filter((s) => projectedOwnedSkills.includes(s));
+        const unlockedBy = projectedMatches.filter((s) => !currentMatches.includes(s) && addedSkills.includes(s));
+        return {
+          course,
+          code,
+          unlockDelta: projectedMatches.length - currentMatches.length,
+          unlockedBy,
+          evidencePath: unlockedBy.map((s) => `Student -> (add ${s}) -> Course:${course}`)
+        };
+      })
+      .filter((c) => c.unlockDelta > 0)
       .sort((a, b) => b.unlockDelta - a.unlockDelta)
       .slice(0, 5);
 
@@ -1118,6 +1650,11 @@ app.get("/analysis/student/:id/counterfactual", async (req, res) => {
       .sort((a, b) => b.unlockDelta - a.unlockDelta)
       .slice(0, 5);
 
+    const currentCoveredRoleSkills = requiredSkills.filter((s) => currentOwnedSkills.includes(s));
+    const projectedCoveredRoleSkills = requiredSkills.filter((s) => projectedOwnedSkills.includes(s));
+    const newlyCoveredRoleSkills = projectedCoveredRoleSkills.filter((s) => !currentCoveredRoleSkills.includes(s));
+    const remainingMissingSkills = requiredSkills.filter((s) => !projectedOwnedSkills.includes(s));
+
     res.json({
       studentId: id,
       targetRole,
@@ -1125,7 +1662,12 @@ app.get("/analysis/student/:id/counterfactual", async (req, res) => {
       currentReadiness,
       projectedReadiness,
       readinessDelta: projectedReadiness - currentReadiness,
+      currentCoveredRoleSkills,
+      projectedCoveredRoleSkills,
+      newlyCoveredRoleSkills,
+      remainingMissingSkills,
       unlockedProjects: projectUplifts,
+      unlockedCourses: courseUplifts,
       unlockedMentors: mentorUplifts
     });
   } catch (err) {
@@ -1604,7 +2146,13 @@ async function extractTextFromUploadedResume(file) {
 app.post("/resume/analyze", upload.single("resumeFile"), analyzeResumeHandler);
 app.post("/resume/analyze/:id", upload.single("resumeFile"), analyzeResumeHandler);
 // ---------- Server ----------
-app.listen(5000, () => {
+app.listen(5000, async () => {
   console.log("Backend running on http://localhost:5000");
+  try {
+    await ensureCareerBridgeCatalog();
+    console.log("Career bridge catalog ensured");
+  } catch (err) {
+    console.error("Career bridge catalog sync failed:", err.message);
+  }
 });
 
