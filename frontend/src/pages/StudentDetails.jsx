@@ -14,6 +14,7 @@ function StudentDetails() {
   const [readiness, setReadiness] = useState(null);
   const [researchMentors, setResearchMentors] = useState([]);
   const [resumeText, setResumeText] = useState("");
+  const [resumeFile, setResumeFile] = useState(null);
   const [roles, setRoles] = useState([]);
   const [selectedRole, setSelectedRole] = useState("");
   const [simulation, setSimulation] = useState(null);
@@ -74,14 +75,20 @@ function StudentDetails() {
   }, [id]);
 
   const analyzeResume = async () => {
-    if (!resumeText.trim()) {
-      alert("Please paste resume content first");
+    if (!resumeText.trim() && !resumeFile) {
+      alert("Please upload a resume or paste resume content first");
       return;
     }
 
     try {
       setAnalyzingResume(true);
-      const res = await api.post(`/resume/analyze/${id}`, { resumeText });
+      const formData = new FormData();
+      if (resumeText.trim()) formData.append("resumeText", resumeText.trim());
+      if (resumeFile) formData.append("resumeFile", resumeFile);
+
+      const res = await api.post(`/resume/analyze/${id}`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
       setResumeResult(res.data);
     } catch (err) {
       console.error(err);
@@ -439,11 +446,23 @@ function StudentDetails() {
       </div>
 
       <div style={styles.section}>
-        <div style={styles.sectionTitle}>Resume Analyzer</div>
+      <div style={styles.sectionTitle}>Resume Analyzer</div>
         <div style={styles.card}>
+          <input
+            type="file"
+            accept=".pdf,.docx,.txt"
+            onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+            style={{ ...styles.input, marginBottom: "10px" }}
+          />
+          {resumeFile && (
+            <p style={{ marginTop: 0, marginBottom: "10px", color: "#475569", fontSize: "13px" }}>
+              Selected file: {resumeFile.name}
+            </p>
+          )}
+
           <textarea
             rows="6"
-            placeholder="Paste resume content here..."
+            placeholder="Optional: paste resume content here..."
             value={resumeText}
             onChange={(e) => setResumeText(e.target.value)}
             style={styles.input}
@@ -465,6 +484,14 @@ function StudentDetails() {
             >
               <h3 style={{ marginTop: 0 }}>Target Role: {resumeResult.role}</h3>
               <h3>Resume Score: {resumeResult.score}%</h3>
+              {resumeResult.scoreBreakdown && (
+                <p style={{ marginTop: "6px", fontSize: "13px", color: "#475569" }}>
+                  Skills: {resumeResult.scoreBreakdown.skillScore}% | Projects:{" "}
+                  {resumeResult.scoreBreakdown.projectScore}% (
+                  {resumeResult.scoreBreakdown.matchedProjects}/
+                  {resumeResult.scoreBreakdown.totalProjects} aligned)
+                </p>
+              )}
 
               <h4 style={{ marginBottom: "8px" }}>Matched Skills</h4>
               <ul style={{ marginTop: 0, paddingLeft: "18px" }}>

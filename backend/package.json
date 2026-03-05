@@ -13,6 +13,9 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.2.1",
-    "neo4j-driver": "^6.0.1"
+    "mammoth": "^1.11.0",
+    "multer": "^2.0.2",
+    "neo4j-driver": "^6.0.1",
+    "pdf-parse": "^1.1.1"
   }
 }

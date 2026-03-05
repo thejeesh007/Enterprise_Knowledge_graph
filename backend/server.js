@@ -1,11 +1,19 @@
 const express = require("express");
 const cors = require("cors");
 const neo4j = require("neo4j-driver");
+const multer = require("multer");
+const pdfParse = require("pdf-parse");
+const mammoth = require("mammoth");
+const path = require("path");
 const driver = require("./db");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
 function extractSkillsFromResume(resumeText) {
   const knownSkills = [
     "Python",
@@ -738,20 +746,30 @@ app.get("/graph/student/:id", async (req, res) => {
   }
 });
 
-app.post("/resume/analyze", async (req, res) => {
-  const { studentId, resumeText } = req.body;
+async function analyzeResumeHandler(req, res) {
+  const { resumeText: pastedResumeText } = req.body;
+  const rawStudentId = req.params.id ?? req.body.studentId;
+  const studentId = Number(rawStudentId);
+  let resumeText = (pastedResumeText || "").trim();
 
-  if (!studentId || !resumeText) {
+  if (!resumeText && req.file) {
+    try {
+      resumeText = await extractTextFromUploadedResume(req.file);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+
+  if (!Number.isFinite(studentId) || !resumeText) {
     return res.status(400).json({ error: "studentId and resumeText required" });
   }
 
   const session = driver.session();
 
   try {
-    // 1️⃣ Get student career goal
     const studentResult = await session.run(
       `MATCH (s:Student {id:$id}) RETURN s.career_goal AS role`,
-      { id: Number(studentId) }
+      { id: studentId }
     );
 
     if (studentResult.records.length === 0) {
@@ -760,7 +778,6 @@ app.post("/resume/analyze", async (req, res) => {
 
     const targetRole = studentResult.records[0].get("role");
 
-    // 2️⃣ Get required skills for that role
     const requiredResult = await session.run(
       `
       MATCH (r:CareerRole {name:$role})-[:REQUIRES_SKILL]->(sk:Skill)
@@ -769,30 +786,55 @@ app.post("/resume/analyze", async (req, res) => {
       { role: targetRole }
     );
 
-    const requiredSkills =
-      requiredResult.records[0]?.get("requiredSkills") || [];
-
-    // 3️⃣ Extract skills from resume text
+    const requiredSkills = requiredResult.records[0]?.get("requiredSkills") || [];
     const resumeSkills = extractSkillsFromResume(resumeText);
 
-    // 4️⃣ Compare
-    const matchedSkills = resumeSkills.filter(s =>
-      requiredSkills.includes(s)
-    );
-
-    const missingSkills = requiredSkills.filter(s =>
-      !resumeSkills.includes(s)
-    );
+    const matchedSkills = resumeSkills.filter((s) => requiredSkills.includes(s));
+    const missingSkills = requiredSkills.filter((s) => !resumeSkills.includes(s));
 
     const score =
       requiredSkills.length === 0
         ? 0
         : Math.round((matchedSkills.length / requiredSkills.length) * 100);
 
+    // Lightweight project signal: how many student projects align with required role skills.
+    const projectResult = await session.run(
+      `
+      MATCH (s:Student {id:$id})
+      OPTIONAL MATCH (s)-[:WORKED_ON]->(pAll:Project)
+      WITH s, collect(DISTINCT pAll) AS allProjects
+      OPTIONAL MATCH (s)-[:WORKED_ON]->(pMatch:Project)-[:USES|BUILDS_SKILL]->(sk:Skill)
+      WITH
+        allProjects,
+        collect(DISTINCT CASE WHEN sk.name IN $requiredSkills THEN pMatch END) AS matchedProjectsRaw
+      RETURN
+        size([p IN allProjects WHERE p IS NOT NULL]) AS totalProjects,
+        size([p IN matchedProjectsRaw WHERE p IS NOT NULL]) AS matchedProjects
+      `,
+      { id: studentId, requiredSkills }
+    );
+
+    const projectRow = projectResult.records[0];
+    const totalProjects = toNumber(projectRow.get("totalProjects"));
+    const matchedProjects = toNumber(projectRow.get("matchedProjects"));
+    const projectScore =
+      totalProjects === 0 ? 0 : Math.round((matchedProjects / totalProjects) * 100);
+    const finalScore = Math.round(score * 0.8 + projectScore * 0.2);
+
+    // Keep response compatible with both current and older frontend fields.
     res.json({
       studentId,
+      role: targetRole,
+      score: finalScore,
       targetRole,
-      resumeScore: score,
+      resumeScore: finalScore,
+      scoreBreakdown: {
+        skillScore: score,
+        projectScore,
+        totalProjects,
+        matchedProjects,
+        weights: { skills: 0.8, projects: 0.2 }
+      },
       matchedSkills,
       missingSkills
     });
@@ -802,9 +844,39 @@ app.post("/resume/analyze", async (req, res) => {
   } finally {
     await session.close();
   }
-});
+}
 
+async function extractTextFromUploadedResume(file) {
+  if (!file || !file.buffer) return "";
+
+  const fileExt = path.extname(file.originalname || "").toLowerCase();
+  const mime = (file.mimetype || "").toLowerCase();
+
+  if (mime === "application/pdf" || fileExt === ".pdf") {
+    const parsed = await pdfParse(file.buffer);
+    return (parsed.text || "").trim();
+  }
+
+  if (
+    mime ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    fileExt === ".docx"
+  ) {
+    const parsed = await mammoth.extractRawText({ buffer: file.buffer });
+    return (parsed.value || "").trim();
+  }
+
+  if (mime.startsWith("text/") || fileExt === ".txt") {
+    return file.buffer.toString("utf8").trim();
+  }
+
+  throw new Error("Unsupported resume format. Please upload PDF, DOCX, or TXT.");
+}
+
+app.post("/resume/analyze", upload.single("resumeFile"), analyzeResumeHandler);
+app.post("/resume/analyze/:id", upload.single("resumeFile"), analyzeResumeHandler);
 // ---------- Server ----------
 app.listen(5000, () => {
   console.log("Backend running on http://localhost:5000");
 });
+
