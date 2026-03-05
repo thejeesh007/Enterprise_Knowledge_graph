@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import ForceGraph2D from "react-force-graph-2d";
+import { useNavigate, useParams } from "react-router-dom";
 import api from "../services/api";
 
 function StudentDetails() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [student, setStudent] = useState(null);
   const [skills, setSkills] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -21,13 +21,6 @@ function StudentDetails() {
   const [simulation, setSimulation] = useState(null);
   const [resumeResult, setResumeResult] = useState(null);
   const [analyzingResume, setAnalyzingResume] = useState(false);
-  const [reasonGraphData, setReasonGraphData] = useState(null);
-  const [reasonGraphLoading, setReasonGraphLoading] = useState(false);
-  const [reasonGraphMeta, setReasonGraphMeta] = useState(null);
-  const [bridgeData, setBridgeData] = useState(null);
-  const [counterfactualData, setCounterfactualData] = useState(null);
-  const [counterfactualSkills, setCounterfactualSkills] = useState([]);
-  const [runningCounterfactual, setRunningCounterfactual] = useState(false);
 
   useEffect(() => {
     api
@@ -49,11 +42,6 @@ function StudentDetails() {
       .get(`/analysis/student/${id}/skill-gap`)
       .then((res) => setSkillGap(res.data))
       .catch(() => setSkillGap([]));
-
-    api
-      .get(`/analysis/student/${id}/bridge-to-role`)
-      .then((res) => setBridgeData(res.data))
-      .catch(() => setBridgeData(null));
 
     api
       .get(`/recommendations/student/${id}/projects`)
@@ -117,46 +105,6 @@ function StudentDetails() {
       .get(`/simulation/student/${id}/role/${encodeURIComponent(selectedRole)}`)
       .then((res) => setSimulation(res.data))
       .catch(() => setSimulation(null));
-  };
-
-  const toggleCounterfactualSkill = (skill) => {
-    setCounterfactualSkills((prev) =>
-      prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]
-    );
-  };
-
-  const runCounterfactual = async () => {
-    if (!counterfactualSkills.length) return;
-    try {
-      setRunningCounterfactual(true);
-      const res = await api.get(`/analysis/student/${id}/counterfactual`, {
-        params: { addSkills: counterfactualSkills.join(",") }
-      });
-      setCounterfactualData(res.data);
-    } catch (err) {
-      console.error(err);
-      alert(err?.response?.data?.error || "Counterfactual simulation failed");
-      setCounterfactualData(null);
-    } finally {
-      setRunningCounterfactual(false);
-    }
-  };
-
-  const openReasonGraph = async (type, target, label, evidencePaths = []) => {
-    try {
-      setReasonGraphLoading(true);
-      setReasonGraphMeta({ type, label, evidencePaths });
-      const res = await api.get(`/recommendations/student/${id}/evidence-graph`, {
-        params: { type, target }
-      });
-      setReasonGraphData(res.data);
-    } catch (err) {
-      console.error(err);
-      alert(err?.response?.data?.error || "Could not load reason graph");
-      setReasonGraphData(null);
-    } finally {
-      setReasonGraphLoading(false);
-    }
   };
 
   if (!student) {
@@ -319,57 +267,7 @@ function StudentDetails() {
       marginBottom: "6px",
       fontSize: "12px",
       color: "#334155"
-    },
-    reasonBtn: {
-      marginTop: "10px",
-      padding: "8px 12px",
-      borderRadius: "8px",
-      border: "1px solid #bfdbfe",
-      background: "#eff6ff",
-      color: "#1e3a8a",
-      fontSize: "12px",
-      fontWeight: 700,
-      cursor: "pointer"
-    },
-    graphPanel: {
-      marginTop: "22px",
-      border: "1px solid #cbd5e1",
-      borderRadius: "14px",
-      background: "#fff",
-      padding: "14px",
-      boxShadow: "0 8px 20px rgba(15, 23, 42, 0.08)"
-    },
-    graphWrap: {
-      width: "100%",
-      height: "360px",
-      border: "1px solid #e2e8f0",
-      borderRadius: "10px",
-      overflow: "hidden",
-      marginTop: "10px"
-    },
-    softCard: {
-      border: "1px solid #dbeafe",
-      borderRadius: "12px",
-      padding: "12px",
-      background: "#f8fbff",
-      marginTop: "10px"
     }
-  };
-
-  const renderEvidencePaths = (evidencePaths = []) => {
-    if (!evidencePaths.length) return null;
-
-    return (
-      <div style={styles.evidenceBox}>
-        <div style={styles.evidenceTitle}>Why this recommendation</div>
-        {evidencePaths.map((e, idx) => (
-          <div key={idx} style={styles.evidenceItem}>
-            <strong>{e.summary}</strong>
-            <div style={{ marginTop: "2px" }}>{(e.path || []).join(" -> ")}</div>
-          </div>
-        ))}
-      </div>
-    );
   };
 
   return (
@@ -406,6 +304,21 @@ function StudentDetails() {
         <div style={styles.contact}>
           <span>{student.email}</span>
           <span>{student.country}</span>
+        </div>
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.card}>
+          <div style={{ fontWeight: 700, marginBottom: "8px" }}>Graph Intelligence Modules</div>
+          <div style={styles.muted}>
+            Open a dedicated page for reason graphs, bridge-to-role analysis, and counterfactual path engine.
+          </div>
+          <button
+            onClick={() => navigate(`/students/${id}/graph-insights`)}
+            style={styles.button}
+          >
+            Open Graph Insights
+          </button>
         </div>
       </div>
 
@@ -471,26 +384,6 @@ function StudentDetails() {
                   ))}
                 </ul>
 
-                <button
-                  style={styles.reasonBtn}
-                  onClick={() =>
-                    openReasonGraph(
-                      "mentor",
-                      m.faculty,
-                      m.faculty,
-                      (m.matchedResearch || []).map((area) => ({
-                        summary: `${m.faculty} researches ${area}`,
-                        path: [
-                          "Student",
-                          `INTERESTED_IN -> ${area}`,
-                          `RESEARCHES_IN <- Faculty:${m.faculty}`
-                        ]
-                      }))
-                    )
-                  }
-                >
-                  View Reason Graph
-                </button>
               </div>
             ))}
           </div>
@@ -514,13 +407,6 @@ function StudentDetails() {
                 <strong>Relevance:</strong> {p.relevance}
               </p>
               <p style={{ margin: "8px 0 0", fontSize: "13px", color: "#475569" }}>{p.explanation}</p>
-              <button
-                style={styles.reasonBtn}
-                onClick={() => openReasonGraph("project", p.title, p.title, p.evidencePaths || [])}
-              >
-                View Reason Graph
-              </button>
-              {renderEvidencePaths(p.evidencePaths)}
             </div>
           ))}
         </div>
@@ -577,106 +463,10 @@ function StudentDetails() {
                 </>
               )}
 
-              {renderEvidencePaths(m.evidencePaths)}
-              <button
-                style={styles.reasonBtn}
-                onClick={() => openReasonGraph("mentor", m.mentor, m.mentor, m.evidencePaths || [])}
-              >
-                View Reason Graph
-              </button>
             </div>
           ))}
         </div>
       </div>
-
-      {(reasonGraphLoading || reasonGraphData) && (
-        <div style={styles.graphPanel}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-            <div>
-              <strong>Reason Graph</strong>
-              {reasonGraphMeta?.label && (
-                <div style={{ fontSize: "13px", color: "#475569", marginTop: "2px" }}>
-                  Recommendation: {reasonGraphMeta.label}
-                </div>
-              )}
-            </div>
-            <button
-              style={{ ...styles.reasonBtn, marginTop: 0 }}
-              onClick={() => {
-                setReasonGraphData(null);
-                setReasonGraphMeta(null);
-              }}
-            >
-              Close
-            </button>
-          </div>
-
-          {reasonGraphLoading ? (
-            <p style={{ marginTop: "10px", color: "#475569" }}>Loading reason graph...</p>
-          ) : reasonGraphData?.nodes?.length ? (
-            <>
-              <div style={styles.graphWrap}>
-                <ForceGraph2D
-                  graphData={{ nodes: reasonGraphData.nodes, links: reasonGraphData.links }}
-                  nodeLabel={(node) => `${node.label}: ${node.name || ""}`}
-                  linkLabel={(link) => link.type}
-                  nodeAutoColorBy="label"
-                  linkDirectionalArrowLength={6}
-                  linkDirectionalArrowRelPos={1}
-                  nodeCanvasObjectMode={() => "replace"}
-                  nodeCanvasObject={(node, ctx, globalScale) => {
-                    const label = node.name || node.label || "";
-                    const fontSize = Math.max(11 / globalScale, 3.5);
-                    const radius = Math.max(8 / globalScale, 3);
-                    const labelPadding = 2.5 / globalScale;
-
-                    const colorMap = {
-                      Student: "#1d4ed8",
-                      Faculty: "#7c3aed",
-                      Project: "#0f766e",
-                      Skill: "#ea580c",
-                      ResearchArea: "#0891b2"
-                    };
-                    const nodeColor = colorMap[node.label] || "#334155";
-
-                    // Round node
-                    ctx.beginPath();
-                    ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-                    ctx.fillStyle = nodeColor;
-                    ctx.fill();
-                    ctx.lineWidth = Math.max(1 / globalScale, 0.4);
-                    ctx.strokeStyle = "#ffffff";
-                    ctx.stroke();
-
-                    // Node label beneath circle
-                    ctx.font = `${fontSize}px Sans-Serif`;
-                    const textWidth = ctx.measureText(label).width;
-                    const bckgHeight = fontSize + labelPadding * 2;
-                    const bckgWidth = textWidth + labelPadding * 4;
-                    const labelY = node.y + radius + bckgHeight / 2 + 2 / globalScale;
-
-                    ctx.fillStyle = "rgba(255,255,255,0.85)";
-                    ctx.fillRect(
-                      node.x - bckgWidth / 2,
-                      labelY - bckgHeight / 2,
-                      bckgWidth,
-                      bckgHeight
-                    );
-
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    ctx.fillStyle = "#111827";
-                    ctx.fillText(label, node.x, labelY);
-                  }}
-                />
-              </div>
-              {reasonGraphMeta?.evidencePaths?.length > 0 && renderEvidencePaths(reasonGraphMeta.evidencePaths)}
-            </>
-          ) : (
-            <p style={{ marginTop: "10px", color: "#475569" }}>No graph path available for this recommendation.</p>
-          )}
-        </div>
-      )}
 
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Academic Information</div>
@@ -827,106 +617,6 @@ function StudentDetails() {
             ))
           ) : (
             <p style={styles.muted}>No immediate skill gaps detected.</p>
-          )}
-        </div>
-      </div>
-
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Graph Bridge To Career Role</div>
-        {!bridgeData ? (
-          <div style={styles.muted}>Bridge analysis not available.</div>
-        ) : (
-          <div style={styles.card}>
-            <p style={{ marginTop: 0, color: "#334155" }}>
-              Target Role: <strong>{bridgeData.targetRole}</strong> | Current Readiness:{" "}
-              <strong>{bridgeData.currentReadiness}%</strong> | Missing Skills:{" "}
-              <strong>{bridgeData.shortestBridgeLength}</strong>
-            </p>
-            {(bridgeData.bridgeItems || []).slice(0, 6).map((item, idx) => (
-              <div key={idx} style={styles.softCard}>
-                <div style={{ fontWeight: 700 }}>{item.skill}</div>
-                <div style={{ marginTop: "6px", fontSize: "13px", color: "#475569" }}>
-                  Projects: {(item.viaProjects || []).length ? item.viaProjects.join(", ") : "No mapped projects"}
-                </div>
-                <div style={{ marginTop: "4px", fontSize: "13px", color: "#475569" }}>
-                  Courses: {(item.viaCourses || []).length ? item.viaCourses.join(", ") : "No mapped courses"}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Counterfactual Path Engine</div>
-        <div style={styles.card}>
-          <p style={{ marginTop: 0, fontSize: "13px", color: "#475569" }}>
-            Select missing skills to simulate graph impact on readiness and recommendations.
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-            {(skillGap || []).map((s, i) => (
-              <button
-                key={i}
-                onClick={() => toggleCounterfactualSkill(s)}
-                style={{
-                  ...styles.reasonBtn,
-                  marginTop: 0,
-                  background: counterfactualSkills.includes(s) ? "#dbeafe" : "#eff6ff",
-                  borderColor: counterfactualSkills.includes(s) ? "#60a5fa" : "#bfdbfe"
-                }}
-              >
-                {counterfactualSkills.includes(s) ? "Selected: " : ""}{s}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={runCounterfactual}
-            disabled={runningCounterfactual || !counterfactualSkills.length}
-            style={{ ...styles.button, opacity: runningCounterfactual || !counterfactualSkills.length ? 0.7 : 1 }}
-          >
-            {runningCounterfactual ? "Simulating..." : "Run Counterfactual"}
-          </button>
-
-          {counterfactualData && (
-            <div style={styles.softCard}>
-              <div style={{ fontWeight: 700, marginBottom: "6px" }}>
-                Readiness: {counterfactualData.currentReadiness}% -> {counterfactualData.projectedReadiness}% (+
-                {counterfactualData.readinessDelta}%)
-              </div>
-              <div style={{ fontSize: "13px", color: "#475569" }}>
-                Added Skills: {counterfactualData.addedSkills.join(", ")}
-              </div>
-
-              <div style={{ marginTop: "10px" }}>
-                <strong style={{ fontSize: "14px" }}>Unlocked Projects</strong>
-                {(counterfactualData.unlockedProjects || []).length ? (
-                  <ul style={{ margin: "6px 0 0", paddingLeft: "18px", fontSize: "13px", color: "#334155" }}>
-                    {counterfactualData.unlockedProjects.map((p, i) => (
-                      <li key={i}>
-                        {p.title} ({p.domain}) | +{p.unlockDelta} path(s) via {p.unlockedBy.join(", ")}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div style={styles.muted}>No additional projects unlocked.</div>
-                )}
-              </div>
-
-              <div style={{ marginTop: "10px" }}>
-                <strong style={{ fontSize: "14px" }}>Unlocked Mentors</strong>
-                {(counterfactualData.unlockedMentors || []).length ? (
-                  <ul style={{ margin: "6px 0 0", paddingLeft: "18px", fontSize: "13px", color: "#334155" }}>
-                    {counterfactualData.unlockedMentors.map((m, i) => (
-                      <li key={i}>
-                        {m.mentor} | +{m.unlockDelta} path(s) via {m.unlockedBy.join(", ")}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div style={styles.muted}>No additional mentors unlocked.</div>
-                )}
-              </div>
-            </div>
           )}
         </div>
       </div>
