@@ -788,14 +788,23 @@ async function analyzeResumeHandler(req, res) {
 
     const requiredSkills = requiredResult.records[0]?.get("requiredSkills") || [];
     const resumeSkills = extractSkillsFromResume(resumeText);
+    const projectSectionSkills = extractProjectSectionSkills(resumeText);
 
     const matchedSkills = resumeSkills.filter((s) => requiredSkills.includes(s));
     const missingSkills = requiredSkills.filter((s) => !resumeSkills.includes(s));
+    const matchedProjectSectionSkills = projectSectionSkills.filter((s) =>
+      requiredSkills.includes(s)
+    );
 
-    const score =
+    const skillScore =
       requiredSkills.length === 0
         ? 0
         : Math.round((matchedSkills.length / requiredSkills.length) * 100);
+
+    const resumeProjectSectionScore =
+      requiredSkills.length === 0
+        ? 0
+        : Math.round((matchedProjectSectionSkills.length / requiredSkills.length) * 100);
 
     // Lightweight project signal: how many student projects align with required role skills.
     const projectResult = await session.run(
@@ -819,7 +828,10 @@ async function analyzeResumeHandler(req, res) {
     const matchedProjects = toNumber(projectRow.get("matchedProjects"));
     const projectScore =
       totalProjects === 0 ? 0 : Math.round((matchedProjects / totalProjects) * 100);
-    const finalScore = Math.round(score * 0.8 + projectScore * 0.2);
+    // Minor project-section signal from resume text.
+    const finalScore = Math.round(
+      skillScore * 0.75 + projectScore * 0.15 + resumeProjectSectionScore * 0.1
+    );
 
     // Keep response compatible with both current and older frontend fields.
     res.json({
@@ -829,11 +841,13 @@ async function analyzeResumeHandler(req, res) {
       targetRole,
       resumeScore: finalScore,
       scoreBreakdown: {
-        skillScore: score,
+        skillScore,
         projectScore,
+        resumeProjectSectionScore,
         totalProjects,
         matchedProjects,
-        weights: { skills: 0.8, projects: 0.2 }
+        matchedProjectSectionSkills,
+        weights: { skills: 0.75, graphProjects: 0.15, resumeProjects: 0.1 }
       },
       matchedSkills,
       missingSkills
@@ -844,6 +858,29 @@ async function analyzeResumeHandler(req, res) {
   } finally {
     await session.close();
   }
+}
+
+function extractProjectSectionSkills(resumeText) {
+  if (!resumeText) return [];
+
+  const normalizedText = resumeText.replace(/\r/g, "");
+  const lower = normalizedText.toLowerCase();
+
+  const projectHeadingMatch = lower.match(/\b(projects?|academic projects?)\b/);
+  if (!projectHeadingMatch) return [];
+
+  const start = projectHeadingMatch.index;
+  const afterProjects = normalizedText.slice(start);
+
+  const nextHeadingRegex =
+    /\n\s*(experience|education|skills|certifications|achievements|internships|summary|objective|publications)\s*\n/i;
+  const nextHeadingMatch = afterProjects.match(nextHeadingRegex);
+
+  const projectSection = nextHeadingMatch
+    ? afterProjects.slice(0, nextHeadingMatch.index)
+    : afterProjects;
+
+  return extractSkillsFromResume(projectSection);
 }
 
 async function extractTextFromUploadedResume(file) {
