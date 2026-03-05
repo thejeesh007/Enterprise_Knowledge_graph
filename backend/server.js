@@ -191,11 +191,9 @@ function uniqueStrings(list = []) {
 
 const AUTH_SECRET = process.env.AUTH_SECRET || "ekg-dev-secret-change-me";
 const TOKEN_TTL_SECONDS = Number(process.env.AUTH_TOKEN_TTL_SECONDS || 60 * 60 * 8);
-const DEMO_USERS = [
-  { id: "u-admin", email: "admin@ekg.local", password: "Admin@123", role: "admin", profileId: null, name: "Admin" },
-  { id: "u-student-1", email: "student1@ekg.local", password: "Student@123", role: "student", profileId: 1, name: "Student One" },
-  { id: "u-faculty-1", email: "faculty1@ekg.local", password: "Faculty@123", role: "faculty", profileId: 1, name: "Faculty One" }
-];
+const AUTH_BOOTSTRAP_ADMIN_EMAIL = (process.env.AUTH_BOOTSTRAP_ADMIN_EMAIL || "admin@ekg.local").toLowerCase();
+const AUTH_BOOTSTRAP_ADMIN_PASSWORD = process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD || "Admin@123";
+const AUTH_BOOTSTRAP_ADMIN_NAME = process.env.AUTH_BOOTSTRAP_ADMIN_NAME || "Admin";
 
 function base64UrlEncode(input) {
   return Buffer.from(input).toString("base64url");
@@ -218,6 +216,24 @@ function signAuthToken(payload) {
     .update(`${encodedHeader}.${encodedPayload}`)
     .digest("base64url");
   return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derivedKey = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  return `scrypt$${salt}$${derivedKey}`;
+}
+
+function verifyPassword(password, storedHash) {
+  const parts = String(storedHash || "").split("$");
+  if (parts.length !== 3 || parts[0] !== "scrypt") return false;
+  const [, salt, saved] = parts;
+  const derived = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(derived, "hex"), Buffer.from(saved, "hex"));
+  } catch (err) {
+    return false;
+  }
 }
 
 function verifyAuthToken(token) {
@@ -288,6 +304,55 @@ function authMiddleware(req, res, next) {
   }
 
   next();
+}
+
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: `Forbidden: requires role ${allowedRoles.join(" or ")}` });
+    }
+    next();
+  };
+}
+
+async function ensureAuthBootstrap() {
+  const session = driver.session();
+  try {
+    const check = await session.run(
+      `
+      MATCH (u:User {email:$email})
+      RETURN u
+      LIMIT 1
+      `,
+      { email: AUTH_BOOTSTRAP_ADMIN_EMAIL }
+    );
+    if (check.records.length) return;
+
+    const now = new Date().toISOString();
+    await session.run(
+      `
+      CREATE (u:User {
+        id: $id,
+        email: $email,
+        passwordHash: $passwordHash,
+        role: "admin",
+        name: $name,
+        createdAt: $now,
+        updatedAt: $now
+      })
+      `,
+      {
+        id: `user-admin-${Date.now()}`,
+        email: AUTH_BOOTSTRAP_ADMIN_EMAIL,
+        passwordHash: hashPassword(AUTH_BOOTSTRAP_ADMIN_PASSWORD),
+        name: AUTH_BOOTSTRAP_ADMIN_NAME,
+        now
+      }
+    );
+  } finally {
+    await session.close();
+  }
 }
 
 const BRIDGE_SKILL_CATALOG = {
@@ -428,34 +493,215 @@ app.post("/auth/login", async (req, res) => {
     return res.status(400).json({ error: "email and password are required" });
   }
 
-  const user = DEMO_USERS.find((u) => u.email.toLowerCase() === email && u.password === password);
-  if (!user) {
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `
+      MATCH (u:User {email:$email})
+      RETURN u
+      LIMIT 1
+      `,
+      { email }
+    );
+    if (!result.records.length) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
-  const token = signAuthToken({
-    sub: user.id,
-    email: user.email,
-    role: user.role,
-    profileId: user.profileId
-  });
+    const userNode = result.records[0].get("u").properties;
+    const passwordHash = userNode.passwordHash;
+    if (!verifyPassword(password, passwordHash)) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
-  res.json({
-    token,
-    user: {
-      id: user.id,
+    const user = {
+      id: userNode.id,
+      email: userNode.email,
+      role: userNode.role,
+      profileId: userNode.profileId ? toNumber(userNode.profileId) : null,
+      name: userNode.name || userNode.email
+    };
+
+    const token = signAuthToken({
+      sub: user.id,
       email: user.email,
       role: user.role,
-      profileId: user.profileId,
-      name: user.name
-    }
-  });
+      profileId: user.profileId
+    });
+
+    res.json({
+      token,
+      user
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
 });
 
 app.use(authMiddleware);
 
-app.get("/auth/me", (req, res) => {
-  res.json({ user: req.user });
+app.get("/auth/me", async (req, res) => {
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `
+      MATCH (u:User {id:$id})
+      RETURN u
+      LIMIT 1
+      `,
+      { id: req.user.id }
+    );
+    const userNode = result.records[0]?.get("u")?.properties;
+    if (!userNode) {
+      return res.status(401).json({ error: "User no longer exists" });
+    }
+    res.json({
+      user: {
+        id: userNode.id,
+        email: userNode.email,
+        role: userNode.role,
+        profileId: userNode.profileId ? toNumber(userNode.profileId) : null,
+        name: userNode.name || userNode.email
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.post("/admin/students", requireRole("admin"), async (req, res) => {
+  const session = driver.session();
+  const {
+    id,
+    name,
+    dept,
+    year,
+    university_id,
+    enrollment_year,
+    gpa,
+    career_goal,
+    program,
+    email,
+    country,
+    interests,
+    skills
+  } = req.body || {};
+
+  const studentId = Number(id);
+  const normalizedYear = Number(year);
+  const normalizedEnrollmentYear = Number(enrollment_year);
+  const normalizedGpa = Number(gpa);
+  const interestsList = Array.isArray(interests)
+    ? interests.map((x) => String(x).trim()).filter(Boolean)
+    : [];
+  const skillsList = Array.isArray(skills) ? skills.map((x) => String(x).trim()).filter(Boolean) : [];
+
+  if (!Number.isFinite(studentId) || !name || !dept || !Number.isFinite(normalizedYear) || !career_goal || !email) {
+    return res.status(400).json({
+      error: "Required fields: id, name, dept, year, career_goal, email"
+    });
+  }
+
+  try {
+    const existing = await session.run(
+      `
+      MATCH (s:Student {id:$id})
+      RETURN count(s) AS c
+      `,
+      { id: studentId }
+    );
+    if (toNumber(existing.records[0]?.get("c") || 0) > 0) {
+      return res.status(409).json({ error: "Student with this id already exists" });
+    }
+
+    await session.run(
+      `
+      CREATE (s:Student {
+        id:$id,
+        name:$name,
+        dept:$dept,
+        year:$year,
+        university_id:$university_id,
+        enrollment_year:$enrollment_year,
+        gpa:$gpa,
+        career_goal:$career_goal,
+        program:$program,
+        email:$email,
+        country:$country,
+        interests:$interests
+      })
+      WITH s
+      MERGE (r:CareerRole {name:$career_goal})
+      MERGE (s)-[:ASPIRES_TO]->(r)
+      `,
+      {
+        id: studentId,
+        name: String(name),
+        dept: String(dept),
+        year: normalizedYear,
+        university_id: university_id ? String(university_id) : "",
+        enrollment_year: Number.isFinite(normalizedEnrollmentYear) ? normalizedEnrollmentYear : null,
+        gpa: Number.isFinite(normalizedGpa) ? normalizedGpa : 0,
+        career_goal: String(career_goal),
+        program: program ? String(program) : "",
+        email: String(email).toLowerCase(),
+        country: country ? String(country) : "",
+        interests: interestsList
+      }
+    );
+
+    for (const skill of skillsList) {
+      await session.run(
+        `
+        MATCH (s:Student {id:$id})
+        MERGE (sk:Skill {name:$skill})
+        MERGE (s)-[:HAS_SKILL]->(sk)
+        `,
+        { id: studentId, skill }
+      );
+    }
+
+    res.json({ message: "Student created in Neo4j", id: studentId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
+});
+
+app.delete("/admin/students/:id", requireRole("admin"), async (req, res) => {
+  const session = driver.session();
+  const studentId = Number(req.params.id);
+  if (!Number.isFinite(studentId)) {
+    return res.status(400).json({ error: "Invalid student id" });
+  }
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (s:Student {id:$id})
+      OPTIONAL MATCH (u:User)-[own:OWNS_PROFILE]->(s)
+      DELETE own
+      WITH s, collect(u) AS users
+      FOREACH (u IN users | SET u.profileId = null, u.profileType = null)
+      DETACH DELETE s
+      RETURN count(*) AS deletedRows
+      `,
+      { id: studentId }
+    );
+    const deletedRows = toNumber(result.records[0]?.get("deletedRows") || 0);
+    if (deletedRows === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+    res.json({ message: "Student deleted from Neo4j", id: studentId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    await session.close();
+  }
 });
 
 // ---------- Health Check ----------
@@ -496,7 +742,7 @@ app.get("/students", async (req, res) => {
 });
 
 // ---------- Add / Update Student ----------
-app.post("/student", async (req, res) => {
+app.post("/student", requireRole("admin"), async (req, res) => {
   const { id, name, dept, year } = req.body;
 
   if (!id || !name || !dept || !year) {
@@ -2148,6 +2394,12 @@ app.post("/resume/analyze/:id", upload.single("resumeFile"), analyzeResumeHandle
 // ---------- Server ----------
 app.listen(5000, async () => {
   console.log("Backend running on http://localhost:5000");
+  try {
+    await ensureAuthBootstrap();
+    console.log("Auth bootstrap ensured");
+  } catch (err) {
+    console.error("Auth bootstrap failed:", err.message);
+  }
   try {
     await ensureCareerBridgeCatalog();
     console.log("Career bridge catalog ensured");

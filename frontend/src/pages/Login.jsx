@@ -98,11 +98,11 @@ function Login() {
         {error ? <div style={styles.error}>{error}</div> : null}
 
         <div style={styles.hint}>
-          Demo: admin@ekg.local / Admin@123
+          Bootstrap admin (default): admin@ekg.local / Admin@123
           <br />
-          student1@ekg.local / Student@123
+          Can be overridden with backend env:
           <br />
-          faculty1@ekg.local / Faculty@123
+          AUTH_BOOTSTRAP_ADMIN_EMAIL, AUTH_BOOTSTRAP_ADMIN_PASSWORD
         </div>
       </form>
     </div>
@@ -110,4 +110,3 @@ function Login() {
 }
 
 export default Login;
-
